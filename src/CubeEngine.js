@@ -258,7 +258,72 @@ export class Cube {
     this.state = arr.join('');
     return this.state;
   }
+
+  /**
+   * Turns the Up (U) face counter-clockwise (U').
+   * Executed by performing 3 clockwise U turns.
+   * @returns {string} The updated 54-character state string.
+   */
+  turnUPrime() {
+    this.turnU();
+    this.turnU();
+    return this.turnU();
+  }
+
+  /**
+   * Turns the Right (R) face counter-clockwise (R').
+   * Executed by performing 3 clockwise R turns.
+   * @returns {string} The updated 54-character state string.
+   */
+  turnRPrime() {
+    this.turnR();
+    this.turnR();
+    return this.turnR();
+  }
+
+  /**
+   * Turns the Front (F) face counter-clockwise (F').
+   * Executed by performing 3 clockwise F turns.
+   * @returns {string} The updated 54-character state string.
+   */
+  turnFPrime() {
+    this.turnF();
+    this.turnF();
+    return this.turnF();
+  }
+
+  /**
+   * Turns the Down (D) face counter-clockwise (D').
+   * Executed by performing 3 clockwise D turns.
+   * @returns {string} The updated 54-character state string.
+   */
+  turnDPrime() {
+    this.turnD();
+    this.turnD();
+    return this.turnD();
+  }
+
+  /**
+   * Turns the Left (L) face counter-clockwise (L').
+   * Executed by performing 3 clockwise L turns.
+   * @returns {string} The updated 54-character state string.
+   */
+  turnLPrime() {
+    this.turnL();
+    this.turnL();
+    return this.turnL();
+  }
+
+  /**
+   * Turns the Back (B) face counter-clockwise (B').
+   * Executed by performing 3 clockwise B turns.
+   * @returns {string} The updated 54-character state string.
+   */
+  turnBPrime() {
+    this.turnB();
+    this.turnB();
+    return this.turnB();
+  }
 }
 
 export default Cube;
-

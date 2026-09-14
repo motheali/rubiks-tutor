@@ -49,6 +49,136 @@
   margin: 0;
 }
 
+/* 3D Interactive Canvas Container */
+.canvas-wrapper {
+  width: 100%;
+  max-width: 540px;
+  height: 400px;
+  margin: 0 auto;
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background: radial-gradient(circle at center, #1e2029 0%, #121212 75%);
+  border: 1px solid #2a2a2a;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+}
+
+/* Mode Switcher Toggle */
+.mode-toggle-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 680px;
+}
+
+.mode-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.8rem 1.6rem;
+  background-color: #1e1e1e;
+  color: #e0e0e0;
+  border: 1px solid #444444;
+  border-radius: 8px;
+  font-family: Arial, sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+}
+
+.mode-toggle-btn:hover {
+  background-color: #2e2e2e;
+  border-color: #666666;
+}
+
+.mode-toggle-btn.mode-edit-active {
+  background-color: #1e293b;
+  border-color: #38bdf8;
+  color: #38bdf8;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);
+}
+
+/* Interactive Color Palette (Paint Brush) */
+.palette-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: #18181c;
+  border: 1px solid #2d2d38;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 680px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.palette-heading {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.palette-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.palette-swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  background-color: #1e1e24;
+  color: #cbd5e1;
+  border: 1px solid #3d3d4a;
+  border-radius: 8px;
+  font-family: Arial, sans-serif;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.palette-swatch:hover {
+  background-color: #2e2e38;
+  border-color: #555566;
+  transform: translateY(-1px);
+}
+
+/* Active Brush Glow Indicator */
+.palette-swatch.active-brush {
+  border: 2px solid #ffffff;
+  color: #ffffff;
+  background-color: #2a2a36;
+  box-shadow: 0 0 14px var(--swatch-color);
+  transform: scale(1.06);
+}
+
+.swatch-indicator {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: 0 0 4px currentColor;
+  flex-shrink: 0;
+}
+
+.edit-instructions {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin: 0;
+}
+
 /* 2D Cross Net Container - Perfectly Centered */
 .grid-container {
   display: flex;
@@ -97,13 +227,148 @@
   border-radius: 8px;
 }
 
-/* Individual Sticker Tile */
+/* Individual Sticker Tile (Button) */
 .cube-tile {
   width: 100%;
   height: 100%;
   border-radius: 4px;
-  transition: background-color 0.15s ease;
+  border: none;
+  padding: 0;
+  margin: 0;
+  transition: all 0.15s ease;
   box-shadow: inset 0 0 2px rgba(0, 0, 0, 0.3);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+}
+
+/* Interactive Tile Hover in Edit Mode */
+.cube-tile.cube-tile-paintable {
+  cursor: pointer;
+}
+
+.cube-tile.cube-tile-paintable:hover {
+  transform: scale(1.1);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.8), inset 0 0 4px rgba(0, 0, 0, 0.4);
+  z-index: 2;
+}
+
+.cube-tile.cube-tile-paintable:active {
+  transform: scale(0.95);
+}
+
+/* Blank / Unpainted Tile */
+.cube-tile.tile-blank {
+  background-color: #222226;
+  border: 1px dashed #555566;
+}
+
+.tile-blank-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #555566;
+  pointer-events: none;
+}
+
+/* Center Locked Tile */
+.cube-tile.tile-locked {
+  cursor: not-allowed;
+  position: relative;
+}
+
+.cube-tile.tile-locked::after {
+  content: '';
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 2px rgba(255, 255, 255, 0.4);
+}
+
+.cube-tile.tile-locked:hover {
+  transform: none;
+  box-shadow: inset 0 0 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Swatch Counter */
+.swatch-counter {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  background-color: #2b2b36;
+  color: #94a3b8;
+  letter-spacing: 0.02em;
+  margin-left: 0.2rem;
+}
+
+.swatch-counter.count-complete {
+  background-color: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.3);
+}
+
+.swatch-counter.count-overflow {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+/* Validation Status Badge Section */
+.validation-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  width: 100%;
+  max-width: 680px;
+}
+
+.validation-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+  max-width: 100%;
+  word-break: break-word;
+}
+
+.validation-badge.badge-valid {
+  background-color: rgba(34, 197, 94, 0.12);
+  border: 1px solid #22c55e;
+  color: #4ade80;
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.2);
+}
+
+.validation-badge.badge-invalid {
+  background-color: rgba(239, 68, 68, 0.12);
+  border: 1px solid #ef4444;
+  color: #f87171;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.2);
+}
+
+.badge-icon {
+  font-size: 1.1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.badge-extra {
+  font-size: 0.8rem;
+  color: #fda4af;
+  margin-left: 0.35rem;
+  font-weight: 500;
 }
 
 /* Control Panel */
@@ -125,7 +390,7 @@
   letter-spacing: 0.08em;
 }
 
-/* 6 Clockwise Move Buttons */
+/* Move Buttons Group */
 .buttons-group {
   display: flex;
   flex-wrap: wrap;
@@ -168,7 +433,7 @@
   display: inline-block;
 }
 
-/* Secondary Actions (Reset, Scramble) */
+/* Secondary Actions (Reset, Scramble, Clear) */
 .secondary-actions {
   display: flex;
   flex-wrap: wrap;
@@ -195,6 +460,17 @@
   background-color: #333333;
   color: #e0e0e0;
   border-color: #555555;
+}
+
+.secondary-btn.btn-danger {
+  color: #f87171;
+  border-color: #7f1d1d;
+}
+
+.secondary-btn.btn-danger:hover {
+  background-color: #450a0a;
+  border-color: #ef4444;
+  color: #fecaca;
 }
 
 /* State Inspector Section */
@@ -230,6 +506,10 @@
 
 /* Responsive adjustments */
 @media (max-width: 640px) {
+  .canvas-wrapper {
+    height: 320px;
+  }
+
   .face-grid {
     grid-template-columns: repeat(3, 28px);
     grid-template-rows: repeat(3, 28px);
@@ -244,5 +524,14 @@
   .control-btn {
     padding: 0.6rem 0.9rem;
     font-size: 0.9rem;
+  }
+
+  .palette-swatches {
+    gap: 0.5rem;
+  }
+
+  .palette-swatch {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
   }
 }
