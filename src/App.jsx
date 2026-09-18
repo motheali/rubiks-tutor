@@ -1,9 +1,79 @@
-import { useState, useMemo } from 'react';
+import solverModule from 'rubiks-cube-solver';
+import { useState, useMemo, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { Cube } from './CubeEngine';
+import { Cube as CubeEngine, SOLVED_STATE } from './CubeEngine';
 import { validateCubeState } from './CubeValidator';
 import Cube3D from './components/Cube3D';
 import './App.css';
+
+const solveCube = solverModule.default || solverModule;
+const RubiksCube = solveCube.RubiksCube || solverModule.RubiksCube;
+
+/**
+ * Converts our URFDLB uppercase cube state into rubiks-cube-solver FRUDLB lowercase format.
+ * rubiks-cube-solver expects: Front, Right, Up, Down, Left, Back
+ * @param {string} state
+ * @returns {string}
+ */
+function toSolverFormat(state) {
+  if (!state || state.length !== 54) return state;
+  const U = state.substring(0, 9);
+  const R = state.substring(9, 18);
+  const F = state.substring(18, 27);
+  const D = state.substring(27, 36);
+  const L = state.substring(36, 45);
+  const B = state.substring(45, 54);
+  return `${F}${R}${U}${D}${L}${B}`.toLowerCase();
+}
+
+/**
+ * Converts rubiks-cube-solver FRUDLB lowercase format back to our URFDLB uppercase state.
+ * @param {string} solverState
+ * @returns {string}
+ */
+function fromSolverFormat(solverState) {
+  const f = solverState.slice(0, 9);
+  const r = solverState.slice(9, 18);
+  const u = solverState.slice(18, 27);
+  const d = solverState.slice(27, 36);
+  const l = solverState.slice(36, 45);
+  const b = solverState.slice(45, 54);
+  return (u + r + f + d + l + b).toUpperCase();
+}
+
+/**
+ * Maps a standard move notation (e.g. "U", "R'", "Rprime", "F2") to the corresponding CubeEngine methods.
+ * For wide moves (e.g. "r", "d", "b") or slice moves, uses RubiksCube to accurately update state.
+ * @param {CubeEngine} cubeInstance
+ * @param {string} move
+ */
+function executeMove(cubeInstance, move) {
+  if (!move) return;
+  const isPrime = move.includes("'") || move.toLowerCase().includes('prime');
+  const isDouble = move.includes('2');
+  const baseLetter = move[0];
+  const isStandardFace = ['U', 'R', 'F', 'D', 'L', 'B'].includes(baseLetter);
+
+  if (isStandardFace) {
+    if (isPrime) {
+      cubeInstance[`turn${baseLetter}Prime`]?.();
+    } else if (isDouble) {
+      cubeInstance[`turn${baseLetter}`]?.();
+      cubeInstance[`turn${baseLetter}`]?.();
+    } else {
+      cubeInstance[`turn${baseLetter}`]?.();
+    }
+  } else {
+    try {
+      const solverStr = toSolverFormat(cubeInstance.state);
+      const rc = new RubiksCube(solverStr);
+      rc.move(move);
+      cubeInstance.state = fromSolverFormat(rc.toString());
+    } catch {
+      // Fallback
+    }
+  }
+}
 
 /**
  * Curated Aesthetic Palette for Rubik's Cube Tiles:
@@ -84,10 +154,19 @@ const LOCKED_CENTER_INDICES = new Set([4, 13, 22, 31, 40, 49]);
 
 export default function App() {
   // Initialize Cube engine in React useState hook
-  const [cube, setCube] = useState(() => new Cube());
+  const [cube, setCube] = useState(() => new CubeEngine());
   const [moveCount, setMoveCount] = useState(0);
   const [activeBrush, setActiveBrush] = useState('U'); // Default 'U' (White)
   const [isEditMode, setIsEditMode] = useState(false);
+
+  // Auto-playback solver states
+  const [solutionMoves, setSolutionMoves] = useState([]);
+  const [currentMoveIndex, setCurrentMoveIndex] = useState(-1);
+  const [isSolving, setIsSolving] = useState(false);
+  const [solverStatus, setSolverStatus] = useState('');
+  const [solverError, setSolverError] = useState('');
+  const setUIError = setSolverError;
+  const isCancelledRef = useRef(false);
 
   const stateString = cube.state;
 
@@ -108,20 +187,33 @@ export default function App() {
 
   // Execute turn on Cube engine and update React state
   const handleTurn = (turnFunction) => {
+    if (isSolving) return;
     cube[turnFunction]();
-    setCube(new Cube(cube.state));
+    setCube(new CubeEngine(cube.state));
     setMoveCount((count) => count + 1);
   };
 
   // Reset to solved state
   const handleReset = () => {
+    isCancelledRef.current = true;
+    setIsSolving(false);
+    setSolutionMoves([]);
+    setCurrentMoveIndex(-1);
+    setSolverStatus('');
+    setSolverError('');
     cube.reset();
-    setCube(new Cube(cube.state));
+    setCube(new CubeEngine(cube.state));
     setMoveCount(0);
   };
 
   // Set cube state to blank canvas, preserving locked physical centers
   const handleClearCube = () => {
+    isCancelledRef.current = true;
+    setIsSolving(false);
+    setSolutionMoves([]);
+    setCurrentMoveIndex(-1);
+    setSolverStatus('');
+    setSolverError('');
     const blankArr = Array(54).fill('X');
     blankArr[4] = 'U';
     blankArr[13] = 'R';
@@ -129,22 +221,28 @@ export default function App() {
     blankArr[31] = 'D';
     blankArr[40] = 'L';
     blankArr[49] = 'B';
-    setCube(new Cube(blankArr.join('')));
+    setCube(new CubeEngine(blankArr.join('')));
     setMoveCount(0);
   };
 
   // Paint sticker at index with current activeBrush color (centers are locked)
   const handleTileClick = (tileIndex) => {
+    if (isSolving) return;
     if (LOCKED_CENTER_INDICES.has(tileIndex)) {
       return; // Center tiles are locked and cannot be overwritten
     }
     const chars = cube.state.split('');
     chars[tileIndex] = activeBrush;
-    setCube(new Cube(chars.join('')));
+    setCube(new CubeEngine(chars.join('')));
   };
 
   // Random 20-move scramble including clockwise and prime turns
   const handleScramble = () => {
+    if (isSolving) return;
+    setSolutionMoves([]);
+    setCurrentMoveIndex(-1);
+    setSolverStatus('');
+    setSolverError('');
     const turns = [
       'turnU', 'turnR', 'turnF', 'turnD', 'turnL', 'turnB',
       'turnUPrime', 'turnRPrime', 'turnFPrime', 'turnDPrime', 'turnLPrime', 'turnBPrime',
@@ -153,8 +251,92 @@ export default function App() {
       const randomTurn = turns[Math.floor(Math.random() * turns.length)];
       cube[randomTurn]();
     }
-    setCube(new Cube(cube.state));
+    setCube(new CubeEngine(cube.state));
     setMoveCount((count) => count + 20);
+  };
+
+  // Verify physical state, solve with rubiks-cube-solver, and auto-playback solution sequence (400ms per move)
+  const handleVerifyAndSolve = async () => {
+    if (isSolving) return;
+
+    setSolverError('');
+    setSolverStatus('Verifying cube state...');
+
+    // 1. Run physical validation first (Tier 1 & Tier 2)
+    const validationResult = validateCubeState(cube.state);
+    if (!validationResult.isValid) {
+      setSolverError(validationResult.errors[0] || 'Invalid physical cube state.');
+      setSolverStatus('');
+      return;
+    }
+
+    // 2. Check if already solved
+    if (cube.state === SOLVED_STATE) {
+      setSolverStatus('Cube is already solved! 🎉');
+      return;
+    }
+
+    setIsSolving(true);
+    setSolverStatus('Calculating optimal solution...');
+    isCancelledRef.current = false;
+
+    // Small delay so UI paints the calculating status
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    try {
+      // Extract faces from our URFDLB format
+      const U = cube.state.substring(0, 9);
+      const R = cube.state.substring(9, 18);
+      const F = cube.state.substring(18, 27);
+      const D = cube.state.substring(27, 36);
+      const L = cube.state.substring(36, 45);
+      const B = cube.state.substring(45, 54);
+
+      // Reorder to library's FRUDLB format and make lowercase
+      const solverFormat = `${F}${R}${U}${D}${L}${B}`.toLowerCase();
+
+      // Pass adapter string to solver
+      const solution = solveCube(solverFormat);
+      const moves = typeof solution === 'string'
+        ? solution.trim().split(/\s+/).filter(Boolean)
+        : Array.isArray(solution)
+        ? solution
+        : [];
+
+      if (moves.length === 0) {
+        setSolverStatus('Cube is already solved! 🎉');
+        setIsSolving(false);
+        return;
+      }
+
+      setSolutionMoves(moves);
+      setSolverStatus(`Solving (${moves.length} moves)...`);
+
+      // 3. Auto-Playback Animation (400ms per move)
+      for (let i = 0; i < moves.length; i++) {
+        if (isCancelledRef.current) break;
+
+        setCurrentMoveIndex(i);
+        const move = moves[i];
+
+        executeMove(cube, move);
+        setCube(new CubeEngine(cube.state));
+        setMoveCount((count) => count + (move.includes('2') ? 2 : 1));
+
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+
+      if (!isCancelledRef.current) {
+        setCurrentMoveIndex(-1);
+        setSolverStatus(`Solved in ${moves.length} moves! 🎉`);
+      }
+    } catch (error) {
+      console.error("Solver Crash:", error);
+      setUIError("Solver Crash: " + (error.message || "Unknown error"));
+      setSolverStatus('');
+    } finally {
+      setIsSolving(false);
+    }
   };
 
   return (
@@ -175,12 +357,51 @@ export default function App() {
         </Canvas>
       </section>
 
+      {/* Solution Sequence & Playback Display */}
+      {(solutionMoves.length > 0 || solverStatus || solverError) && (
+        <section className="solution-container" aria-label="Solution Playback">
+          <div className="solution-header">
+            <span>
+              {solutionMoves.length > 0
+                ? `Solution Sequence (${solutionMoves.length} moves)`
+                : 'Solver Status'}
+            </span>
+            {solverStatus && <span className="solution-status">{solverStatus}</span>}
+            {solverError && (
+              <span className="solution-status" style={{ color: '#f87171' }}>
+                {solverError}
+              </span>
+            )}
+          </div>
+          {solutionMoves.length > 0 && (
+            <div className="solution-sequence">
+              {solutionMoves.map((move, idx) => {
+                const isCurrent = idx === currentMoveIndex;
+                const isDone = currentMoveIndex !== -1 && idx < currentMoveIndex;
+                return (
+                  <span
+                    key={idx}
+                    className={`solution-move ${isCurrent ? 'active-move' : ''} ${
+                      isDone ? 'completed-move' : ''
+                    }`}
+                    title={`Step ${idx + 1}: ${move}`}
+                  >
+                    {move}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Mode Switcher Toggle */}
       <section className="mode-toggle-section">
         <button
           type="button"
           className={`mode-toggle-btn ${isEditMode ? 'mode-edit-active' : ''}`}
           onClick={() => setIsEditMode((prev) => !prev)}
+          disabled={isSolving}
           title="Toggle between Scramble/Play mode and Input/Edit mode"
         >
           {isEditMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
@@ -324,6 +545,7 @@ export default function App() {
               type="button"
               className="control-btn"
               onClick={() => handleTurn(btn.key)}
+              disabled={isSolving}
               title={`Turn ${btn.name} Face Clockwise (${btn.label})`}
             >
               <span
@@ -344,6 +566,7 @@ export default function App() {
               type="button"
               className="control-btn"
               onClick={() => handleTurn(btn.key)}
+              disabled={isSolving}
               title={`Turn ${btn.name} Face Counter-Clockwise (${btn.label})`}
             >
               <span
@@ -357,11 +580,21 @@ export default function App() {
 
         {/* Secondary Utility Controls */}
         <div className="secondary-actions">
+          <button
+            type="button"
+            className="solve-btn"
+            onClick={handleVerifyAndSolve}
+            disabled={isSolving}
+            title="Verify parity and solve the cube with auto-playback"
+          >
+            {isSolving ? 'Solving...' : '✨ Verify & Solve'}
+          </button>
           {isEditMode && (
             <button
               type="button"
               className="secondary-btn btn-danger"
               onClick={handleClearCube}
+              disabled={isSolving}
               title="Clear all 54 tiles to blank unpainted canvas"
             >
               Clear Cube
@@ -371,6 +604,7 @@ export default function App() {
             type="button"
             className="secondary-btn"
             onClick={handleScramble}
+            disabled={isSolving}
           >
             Scramble (20 moves)
           </button>
