@@ -11,18 +11,19 @@ const FACE_NAMES = ['U', 'D', 'F', 'B', 'L', 'R']
  * @returns {Record<string, unknown[][]>}
  */
 export function TurnU(state) {
-  assertCubeState(state)
+  assertCubeState(state);
+  const newState = JSON.parse(JSON.stringify(state));
 
-  state.U = rotateFaceClockwise(state.U)
+  newState.U = rotateFaceClockwise(newState.U);
 
-  const frontTop = [...state.F[0]]
+  const frontTop = [...newState.F[0]];
 
-  state.F[0] = [...state.R[0]]
-  state.R[0] = [...state.B[0]]
-  state.B[0] = [...state.L[0]]
-  state.L[0] = frontTop
+  newState.F[0] = [...newState.R[0]];
+  newState.R[0] = [...newState.B[0]];
+  newState.B[0] = [...newState.L[0]];
+  newState.L[0] = frontTop;
 
-  return state
+  return newState;
 }
 
 function rotateFaceClockwise(face) {

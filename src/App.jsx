@@ -1,5 +1,5 @@
 import solverModule from 'rubiks-cube-solver';
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Cube as CubeEngine, SOLVED_STATE } from './CubeEngine';
 import { validateCubeState } from './CubeValidator';
@@ -55,13 +55,15 @@ function executeMove(cubeInstance, move) {
   const isStandardFace = ['U', 'R', 'F', 'D', 'L', 'B'].includes(baseLetter);
 
   if (isStandardFace) {
-    if (isPrime) {
-      cubeInstance[`turn${baseLetter}Prime`]?.();
-    } else if (isDouble) {
-      cubeInstance[`turn${baseLetter}`]?.();
-      cubeInstance[`turn${baseLetter}`]?.();
+    const methodName = isPrime ? `turn${baseLetter}Prime` : `turn${baseLetter}`;
+    if (isDouble) {
+      const r1 = cubeInstance[methodName]?.();
+      const s1 = r1 instanceof CubeEngine ? r1.state : r1;
+      const r2 = r1?.[methodName]?.() || new CubeEngine(s1)[methodName]?.();
+      cubeInstance.state = r2 instanceof CubeEngine ? r2.state : r2;
     } else {
-      cubeInstance[`turn${baseLetter}`]?.();
+      const res = cubeInstance[methodName]?.();
+      cubeInstance.state = res instanceof CubeEngine ? res.state : res;
     }
   } else {
     try {
@@ -126,24 +128,24 @@ const CUBE_FACES = [
  * Control Panel Configuration for 6 Clockwise Turns
  */
 const MOVE_BUTTONS = [
-  { key: 'turnU', label: 'U', name: 'Up', color: TILE_COLORS.U },
-  { key: 'turnR', label: 'R', name: 'Right', color: TILE_COLORS.R },
-  { key: 'turnF', label: 'F', name: 'Front', color: TILE_COLORS.F },
-  { key: 'turnD', label: 'D', name: 'Down', color: TILE_COLORS.D },
-  { key: 'turnL', label: 'L', name: 'Left', color: TILE_COLORS.L },
-  { key: 'turnB', label: 'B', name: 'Back', color: TILE_COLORS.B },
+  { key: 'turnU', label: 'U', name: 'Up', shortcut: 'U', color: TILE_COLORS.U },
+  { key: 'turnR', label: 'R', name: 'Right', shortcut: 'R', color: TILE_COLORS.R },
+  { key: 'turnF', label: 'F', name: 'Front', shortcut: 'F', color: TILE_COLORS.F },
+  { key: 'turnD', label: 'D', name: 'Down', shortcut: 'D', color: TILE_COLORS.D },
+  { key: 'turnL', label: 'L', name: 'Left', shortcut: 'L', color: TILE_COLORS.L },
+  { key: 'turnB', label: 'B', name: 'Back', shortcut: 'B', color: TILE_COLORS.B },
 ];
 
 /**
  * Control Panel Configuration for 6 Counter-Clockwise (Prime) Turns
  */
 const PRIME_MOVE_BUTTONS = [
-  { key: 'turnUPrime', label: "U'", name: 'Up', color: TILE_COLORS.U },
-  { key: 'turnRPrime', label: "R'", name: 'Right', color: TILE_COLORS.R },
-  { key: 'turnFPrime', label: "F'", name: 'Front', color: TILE_COLORS.F },
-  { key: 'turnDPrime', label: "D'", name: 'Down', color: TILE_COLORS.D },
-  { key: 'turnLPrime', label: "L'", name: 'Left', color: TILE_COLORS.L },
-  { key: 'turnBPrime', label: "B'", name: 'Back', color: TILE_COLORS.B },
+  { key: 'turnUPrime', label: "U'", name: 'Up', shortcut: 'Shift+U', color: TILE_COLORS.U },
+  { key: 'turnRPrime', label: "R'", name: 'Right', shortcut: 'Shift+R', color: TILE_COLORS.R },
+  { key: 'turnFPrime', label: "F'", name: 'Front', shortcut: 'Shift+F', color: TILE_COLORS.F },
+  { key: 'turnDPrime', label: "D'", name: 'Down', shortcut: 'Shift+D', color: TILE_COLORS.D },
+  { key: 'turnLPrime', label: "L'", name: 'Left', shortcut: 'Shift+L', color: TILE_COLORS.L },
+  { key: 'turnBPrime', label: "B'", name: 'Back', shortcut: 'Shift+B', color: TILE_COLORS.B },
 ];
 
 /**
@@ -168,6 +170,20 @@ export default function App() {
   const setUIError = setSolverError;
   const isCancelledRef = useRef(false);
 
+  // Ref-based locks to synchronously block rapid speed-cubing inputs and prevent race conditions
+  const isAnimatingRef = useRef(false);
+  const isSolvingRef = useRef(false);
+  const isEditModeRef = useRef(false);
+
+  // Keep solver and edit mode refs synchronized with React state
+  useEffect(() => {
+    isSolvingRef.current = isSolving;
+  }, [isSolving]);
+
+  useEffect(() => {
+    isEditModeRef.current = isEditMode;
+  }, [isEditMode]);
+
   const stateString = cube.state;
 
   // Real-time cube physical state validation
@@ -185,17 +201,93 @@ export default function App() {
     return counts;
   }, [stateString]);
 
-  // Execute turn on Cube engine and update React state
-  const handleTurn = (turnFunction) => {
-    if (isSolving) return;
-    cube[turnFunction]();
-    setCube(new CubeEngine(cube.state));
+  // Execute turn on Cube engine and update React state using functional update
+  const handleTurn = useCallback((turnFunction) => {
+    if (isSolvingRef.current || isAnimatingRef.current || isEditModeRef.current) return;
+    setCube((prevCube) => {
+      if (typeof prevCube[turnFunction] === 'function') {
+        const next = prevCube[turnFunction]();
+        return next instanceof CubeEngine ? next : new CubeEngine(next);
+      }
+      return prevCube;
+    });
     setMoveCount((count) => count + 1);
-  };
+  }, []);
+
+  // Bulletproof Speed-Cubing Keyboard Controls
+  // Functional updates, ref-based locks, empty dependency array [], strict cleanup
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      // 1. Command Key Trap: prevent Cmd+R / Ctrl+R page refreshes and OS shortcuts from turning the cube
+      if (event.metaKey || event.ctrlKey) {
+        return;
+      }
+
+      // 2. Input Focus Trap: do not execute moves if user is focused inside an input or textarea
+      const activeTag = document.activeElement?.tagName;
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') {
+        return;
+      }
+
+      // 3. Edit Mode Guardrail: do not execute moves while in 2D painting/editing mode (ref-based lock)
+      if (isEditModeRef.current) {
+        return;
+      }
+
+      // 4. Solver Lock Guardrail: do not execute moves while auto-solver playback animation is running (ref-based lock)
+      if (isSolvingRef.current) {
+        return;
+      }
+
+      // 5. Animation Lock Guardrail: do not execute moves while 3D rotation animation is in progress (ref-based lock)
+      if (isAnimatingRef.current) {
+        return;
+      }
+
+      // 6. Mapping: r, l, u, d, f, b (case-insensitive) to respective face rotation functions
+      const key = event.key.toLowerCase();
+      const KEY_TO_FACE = {
+        r: 'R',
+        l: 'L',
+        u: 'U',
+        d: 'D',
+        f: 'F',
+        b: 'B',
+      };
+
+      const face = KEY_TO_FACE[key];
+      if (!face) {
+        return;
+      }
+
+      // Valid speed-cubing move key pressed
+      event.preventDefault();
+
+      // Shift key triggers Prime (counter-clockwise) version of the move
+      const turnFunction = event.shiftKey ? `turn${face}Prime` : `turn${face}`;
+
+      // Functional state update ensures rapid speed-cubing moves never encounter stale state closures
+      setCube((prevCube) => {
+        if (typeof prevCube[turnFunction] === 'function') {
+          const next = prevCube[turnFunction]();
+          return next instanceof CubeEngine ? next : new CubeEngine(next);
+        }
+        return prevCube;
+      });
+      setMoveCount((count) => count + 1);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   // Reset to solved state
   const handleReset = () => {
     isCancelledRef.current = true;
+    isSolvingRef.current = false;
+    isAnimatingRef.current = false;
     setIsSolving(false);
     setSolutionMoves([]);
     setCurrentMoveIndex(-1);
@@ -209,6 +301,8 @@ export default function App() {
   // Set cube state to blank canvas, preserving locked physical centers
   const handleClearCube = () => {
     isCancelledRef.current = true;
+    isSolvingRef.current = false;
+    isAnimatingRef.current = false;
     setIsSolving(false);
     setSolutionMoves([]);
     setCurrentMoveIndex(-1);
@@ -227,7 +321,7 @@ export default function App() {
 
   // Paint sticker at index with current activeBrush color (centers are locked)
   const handleTileClick = (tileIndex) => {
-    if (isSolving) return;
+    if (isSolvingRef.current || isAnimatingRef.current) return;
     if (LOCKED_CENTER_INDICES.has(tileIndex)) {
       return; // Center tiles are locked and cannot be overwritten
     }
@@ -238,7 +332,7 @@ export default function App() {
 
   // Random 20-move scramble including clockwise and prime turns
   const handleScramble = () => {
-    if (isSolving) return;
+    if (isSolvingRef.current || isAnimatingRef.current || isEditModeRef.current) return;
     setSolutionMoves([]);
     setCurrentMoveIndex(-1);
     setSolverStatus('');
@@ -247,17 +341,19 @@ export default function App() {
       'turnU', 'turnR', 'turnF', 'turnD', 'turnL', 'turnB',
       'turnUPrime', 'turnRPrime', 'turnFPrime', 'turnDPrime', 'turnLPrime', 'turnBPrime',
     ];
+    let current = cube;
     for (let i = 0; i < 20; i++) {
       const randomTurn = turns[Math.floor(Math.random() * turns.length)];
-      cube[randomTurn]();
+      const next = current[randomTurn]?.();
+      current = next instanceof CubeEngine ? next : new CubeEngine(next);
     }
-    setCube(new CubeEngine(cube.state));
+    setCube(current);
     setMoveCount((count) => count + 20);
   };
 
   // Verify physical state, solve with rubiks-cube-solver, and auto-playback solution sequence (400ms per move)
   const handleVerifyAndSolve = async () => {
-    if (isSolving) return;
+    if (isSolvingRef.current) return;
 
     setSolverError('');
     setSolverStatus('Verifying cube state...');
@@ -277,6 +373,7 @@ export default function App() {
     }
 
     setIsSolving(true);
+    isSolvingRef.current = true;
     setSolverStatus('Calculating optimal solution...');
     isCancelledRef.current = false;
 
@@ -335,6 +432,7 @@ export default function App() {
       setUIError("Solver Crash: " + (error.message || "Unknown error"));
       setSolverStatus('');
     } finally {
+      isSolvingRef.current = false;
       setIsSolving(false);
     }
   };
@@ -537,7 +635,9 @@ export default function App() {
       {/* Controls: Clockwise & Counter-Clockwise Turns */}
       <section className="controls-container" aria-label="Controls">
         {/* Clockwise Turns */}
-        <span className="controls-heading">Clockwise Turns</span>
+        <span className="controls-heading">
+          Clockwise Turns <span className="keyboard-hint-tag">Keys: U, R, F, D, L, B</span>
+        </span>
         <div className="buttons-group">
           {MOVE_BUTTONS.map((btn) => (
             <button
@@ -545,20 +645,23 @@ export default function App() {
               type="button"
               className="control-btn"
               onClick={() => handleTurn(btn.key)}
-              disabled={isSolving}
-              title={`Turn ${btn.name} Face Clockwise (${btn.label})`}
+              disabled={isSolving || isEditMode}
+              title={`Turn ${btn.name} Face Clockwise (${btn.label}) [Key: ${btn.shortcut}]`}
             >
               <span
                 className="color-indicator"
                 style={{ backgroundColor: btn.color }}
               />
               <span>{btn.label}</span>
+              <kbd className="key-hint">{btn.shortcut}</kbd>
             </button>
           ))}
         </div>
 
         {/* Counter-Clockwise Turns */}
-        <span className="controls-heading">Counter-Clockwise Turns</span>
+        <span className="controls-heading">
+          Counter-Clockwise Turns <span className="keyboard-hint-tag">Keys: Shift + Face</span>
+        </span>
         <div className="buttons-group">
           {PRIME_MOVE_BUTTONS.map((btn) => (
             <button
@@ -566,14 +669,15 @@ export default function App() {
               type="button"
               className="control-btn"
               onClick={() => handleTurn(btn.key)}
-              disabled={isSolving}
-              title={`Turn ${btn.name} Face Counter-Clockwise (${btn.label})`}
+              disabled={isSolving || isEditMode}
+              title={`Turn ${btn.name} Face Counter-Clockwise (${btn.label}) [Key: ${btn.shortcut}]`}
             >
               <span
                 className="color-indicator"
                 style={{ backgroundColor: btn.color }}
               />
               <span>{btn.label}</span>
+              <kbd className="key-hint">{btn.shortcut}</kbd>
             </button>
           ))}
         </div>

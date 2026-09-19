@@ -39,13 +39,292 @@ function rotateFaceClockwise(arr, startIndex) {
   arr[startIndex + 8] = s2;
 }
 
+/**
+ * Turns the Up (U) face clockwise. Pure function.
+ * Creates an independent deep copy of incoming state before swapping indexes.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnU(prevState) {
+  const arr = Array.isArray(prevState)
+    ? JSON.parse(JSON.stringify(prevState))
+    : (typeof prevState === 'object' && prevState !== null && 'state' in prevState ? prevState.state : prevState || SOLVED_STATE).split('');
+
+  rotateFaceClockwise(arr, 0);
+
+  const temp = [arr[18], arr[19], arr[20]]; // F top row
+  arr[18] = arr[9];
+  arr[19] = arr[10];
+  arr[20] = arr[11];
+
+  arr[9] = arr[45];
+  arr[10] = arr[46];
+  arr[11] = arr[47];
+
+  arr[45] = arr[36];
+  arr[46] = arr[37];
+  arr[47] = arr[38];
+
+  arr[36] = temp[0];
+  arr[37] = temp[1];
+  arr[38] = temp[2];
+
+  if (Array.isArray(prevState)) return arr;
+  const resultStr = arr.join('');
+  return typeof prevState === 'object' && prevState !== null && 'state' in prevState
+    ? new Cube(resultStr)
+    : resultStr;
+}
+
+/**
+ * Turns the Down (D) face clockwise. Pure function.
+ * Creates an independent deep copy of incoming state before swapping indexes.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnD(prevState) {
+  const arr = Array.isArray(prevState)
+    ? JSON.parse(JSON.stringify(prevState))
+    : (typeof prevState === 'object' && prevState !== null && 'state' in prevState ? prevState.state : prevState || SOLVED_STATE).split('');
+
+  rotateFaceClockwise(arr, 27);
+
+  const temp = [arr[24], arr[25], arr[26]]; // F bottom row
+  arr[24] = arr[42];
+  arr[25] = arr[43];
+  arr[26] = arr[44];
+
+  arr[42] = arr[51];
+  arr[43] = arr[52];
+  arr[44] = arr[53];
+
+  arr[51] = arr[15];
+  arr[52] = arr[16];
+  arr[53] = arr[17];
+
+  arr[15] = temp[0];
+  arr[16] = temp[1];
+  arr[17] = temp[2];
+
+  if (Array.isArray(prevState)) return arr;
+  const resultStr = arr.join('');
+  return typeof prevState === 'object' && prevState !== null && 'state' in prevState
+    ? new Cube(resultStr)
+    : resultStr;
+}
+
+/**
+ * Turns the Front (F) face clockwise. Pure function.
+ * Creates an independent deep copy of incoming state before swapping indexes.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnF(prevState) {
+  const arr = Array.isArray(prevState)
+    ? JSON.parse(JSON.stringify(prevState))
+    : (typeof prevState === 'object' && prevState !== null && 'state' in prevState ? prevState.state : prevState || SOLVED_STATE).split('');
+
+  rotateFaceClockwise(arr, 18);
+
+  const temp = [arr[6], arr[7], arr[8]]; // U bottom row
+  arr[6] = arr[44];
+  arr[7] = arr[41];
+  arr[8] = arr[38];
+
+  arr[38] = arr[27];
+  arr[41] = arr[28];
+  arr[44] = arr[29];
+
+  arr[27] = arr[15];
+  arr[28] = arr[12];
+  arr[29] = arr[9];
+
+  arr[9] = temp[0];
+  arr[12] = temp[1];
+  arr[15] = temp[2];
+
+  if (Array.isArray(prevState)) return arr;
+  const resultStr = arr.join('');
+  return typeof prevState === 'object' && prevState !== null && 'state' in prevState
+    ? new Cube(resultStr)
+    : resultStr;
+}
+
+/**
+ * Turns the Back (B) face clockwise. Pure function.
+ * Creates an independent deep copy of incoming state before swapping indexes.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnB(prevState) {
+  const arr = Array.isArray(prevState)
+    ? JSON.parse(JSON.stringify(prevState))
+    : (typeof prevState === 'object' && prevState !== null && 'state' in prevState ? prevState.state : prevState || SOLVED_STATE).split('');
+
+  rotateFaceClockwise(arr, 45);
+
+  const temp = [arr[0], arr[1], arr[2]]; // U top row
+  arr[0] = arr[11];
+  arr[1] = arr[14];
+  arr[2] = arr[17];
+
+  arr[11] = arr[35];
+  arr[14] = arr[34];
+  arr[17] = arr[33];
+
+  arr[33] = arr[36];
+  arr[34] = arr[39];
+  arr[35] = arr[42];
+
+  arr[36] = temp[2];
+  arr[39] = temp[1];
+  arr[42] = temp[0];
+
+  if (Array.isArray(prevState)) return arr;
+  const resultStr = arr.join('');
+  return typeof prevState === 'object' && prevState !== null && 'state' in prevState
+    ? new Cube(resultStr)
+    : resultStr;
+}
+
+/**
+ * Turns the Left (L) face clockwise. Pure function.
+ * Creates an independent deep copy of incoming state before swapping indexes.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnL(prevState) {
+  const arr = Array.isArray(prevState)
+    ? JSON.parse(JSON.stringify(prevState))
+    : (typeof prevState === 'object' && prevState !== null && 'state' in prevState ? prevState.state : prevState || SOLVED_STATE).split('');
+
+  rotateFaceClockwise(arr, 36);
+
+  const temp = [arr[0], arr[3], arr[6]]; // U left col
+  arr[0] = arr[53];
+  arr[3] = arr[50];
+  arr[6] = arr[47];
+
+  arr[47] = arr[33];
+  arr[50] = arr[30];
+  arr[53] = arr[27];
+
+  arr[27] = arr[18];
+  arr[30] = arr[21];
+  arr[33] = arr[24];
+
+  arr[18] = temp[0];
+  arr[21] = temp[1];
+  arr[24] = temp[2];
+
+  if (Array.isArray(prevState)) return arr;
+  const resultStr = arr.join('');
+  return typeof prevState === 'object' && prevState !== null && 'state' in prevState
+    ? new Cube(resultStr)
+    : resultStr;
+}
+
+/**
+ * Turns the Right (R) face clockwise. Pure function.
+ * Creates an independent deep copy of incoming state before swapping indexes.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnR(prevState) {
+  const arr = Array.isArray(prevState)
+    ? JSON.parse(JSON.stringify(prevState))
+    : (typeof prevState === 'object' && prevState !== null && 'state' in prevState ? prevState.state : prevState || SOLVED_STATE).split('');
+
+  rotateFaceClockwise(arr, 9);
+
+  const temp = [arr[2], arr[5], arr[8]]; // U right col
+  arr[2] = arr[20];
+  arr[5] = arr[23];
+  arr[8] = arr[26];
+
+  arr[20] = arr[29];
+  arr[23] = arr[32];
+  arr[26] = arr[35];
+
+  arr[29] = arr[51];
+  arr[32] = arr[48];
+  arr[35] = arr[45];
+
+  arr[45] = temp[2];
+  arr[48] = temp[1];
+  arr[51] = temp[0];
+
+  if (Array.isArray(prevState)) return arr;
+  const resultStr = arr.join('');
+  return typeof prevState === 'object' && prevState !== null && 'state' in prevState
+    ? new Cube(resultStr)
+    : resultStr;
+}
+
+/**
+ * Turns the Up (U) face counter-clockwise (U'). Pure function.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnUPrime(prevState) {
+  return turnU(turnU(turnU(prevState)));
+}
+
+/**
+ * Turns the Right (R) face counter-clockwise (R'). Pure function.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnRPrime(prevState) {
+  return turnR(turnR(turnR(prevState)));
+}
+
+/**
+ * Turns the Front (F) face counter-clockwise (F'). Pure function.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnFPrime(prevState) {
+  return turnF(turnF(turnF(prevState)));
+}
+
+/**
+ * Turns the Down (D) face counter-clockwise (D'). Pure function.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnDPrime(prevState) {
+  return turnD(turnD(turnD(prevState)));
+}
+
+/**
+ * Turns the Left (L) face counter-clockwise (L'). Pure function.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnLPrime(prevState) {
+  return turnL(turnL(turnL(prevState)));
+}
+
+/**
+ * Turns the Back (B) face counter-clockwise (B'). Pure function.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnBPrime(prevState) {
+  return turnB(turnB(turnB(prevState)));
+}
+
 export class Cube {
   /**
    * Initializes the cube state.
-   * @param {string} [initialState=SOLVED_STATE]
+   * @param {string|Cube} [initialState=SOLVED_STATE]
    */
   constructor(initialState = SOLVED_STATE) {
-    this.state = initialState;
+    this.state =
+      typeof initialState === 'object' && initialState !== null && 'state' in initialState
+        ? initialState.state
+        : initialState || SOLVED_STATE;
   }
 
   /**
@@ -57,272 +336,52 @@ export class Cube {
     return this.state;
   }
 
-  /**
-   * Turns the Up (U) face clockwise.
-   * - Primary face: U (0-8) rotated clockwise.
-   * - Adjacent edges: F top, R top, B top, L top shifted clockwise (F -> L -> B -> R -> F).
-   * @returns {string} The updated 54-character state string.
-   */
   turnU() {
-    const arr = this.state.split('');
-    rotateFaceClockwise(arr, 0);
-
-    const temp = [arr[18], arr[19], arr[20]]; // F top row
-    arr[18] = arr[9];
-    arr[19] = arr[10];
-    arr[20] = arr[11];
-
-    arr[9] = arr[45];
-    arr[10] = arr[46];
-    arr[11] = arr[47];
-
-    arr[45] = arr[36];
-    arr[46] = arr[37];
-    arr[47] = arr[38];
-
-    arr[36] = temp[0];
-    arr[37] = temp[1];
-    arr[38] = temp[2];
-
-    this.state = arr.join('');
-    return this.state;
+    return turnU(this);
   }
 
-  /**
-   * Turns the Down (D) face clockwise.
-   * - Primary face: D (27-35) rotated clockwise.
-   * - Adjacent edges: F bottom, R bottom, B bottom, L bottom shifted clockwise (F -> R -> B -> L -> F).
-   * @returns {string} The updated 54-character state string.
-   */
   turnD() {
-    const arr = this.state.split('');
-    rotateFaceClockwise(arr, 27);
-
-    const temp = [arr[24], arr[25], arr[26]]; // F bottom row
-    arr[24] = arr[42];
-    arr[25] = arr[43];
-    arr[26] = arr[44];
-
-    arr[42] = arr[51];
-    arr[43] = arr[52];
-    arr[44] = arr[53];
-
-    arr[51] = arr[15];
-    arr[52] = arr[16];
-    arr[53] = arr[17];
-
-    arr[15] = temp[0];
-    arr[16] = temp[1];
-    arr[17] = temp[2];
-
-    this.state = arr.join('');
-    return this.state;
+    return turnD(this);
   }
 
-  /**
-   * Turns the Front (F) face clockwise.
-   * - Primary face: F (18-26) rotated clockwise.
-   * - Adjacent edges: U bottom, R left col, D top, L right col shifted clockwise.
-   * @returns {string} The updated 54-character state string.
-   */
   turnF() {
-    const arr = this.state.split('');
-    rotateFaceClockwise(arr, 18);
-
-    const temp = [arr[6], arr[7], arr[8]]; // U bottom row
-    // U bottom <- L right col (reversed)
-    arr[6] = arr[44];
-    arr[7] = arr[41];
-    arr[8] = arr[38];
-
-    // L right col <- D top row
-    arr[38] = arr[27];
-    arr[41] = arr[28];
-    arr[44] = arr[29];
-
-    // D top row <- R left col (reversed)
-    arr[27] = arr[15];
-    arr[28] = arr[12];
-    arr[29] = arr[9];
-
-    // R left col <- U bottom row (temp)
-    arr[9] = temp[0];
-    arr[12] = temp[1];
-    arr[15] = temp[2];
-
-    this.state = arr.join('');
-    return this.state;
+    return turnF(this);
   }
 
-  /**
-   * Turns the Back (B) face clockwise.
-   * - Primary face: B (45-53) rotated clockwise.
-   * - Adjacent edges: U top row, L left col, D bottom row, R right col shifted clockwise.
-   * @returns {string} The updated 54-character state string.
-   */
   turnB() {
-    const arr = this.state.split('');
-    rotateFaceClockwise(arr, 45);
-
-    const temp = [arr[0], arr[1], arr[2]]; // U top row
-    // U top row <- R right col
-    arr[0] = arr[11];
-    arr[1] = arr[14];
-    arr[2] = arr[17];
-
-    // R right col <- D bottom row (reversed)
-    arr[11] = arr[35];
-    arr[14] = arr[34];
-    arr[17] = arr[33];
-
-    // D bottom row <- L left col
-    arr[33] = arr[36];
-    arr[34] = arr[39];
-    arr[35] = arr[42];
-
-    // L left col <- U top row (temp reversed)
-    arr[36] = temp[2];
-    arr[39] = temp[1];
-    arr[42] = temp[0];
-
-    this.state = arr.join('');
-    return this.state;
+    return turnB(this);
   }
 
-  /**
-   * Turns the Left (L) face clockwise.
-   * - Primary face: L (36-44) rotated clockwise.
-   * - Adjacent edges: U left col, F left col, D left col, B right col shifted clockwise.
-   * @returns {string} The updated 54-character state string.
-   */
   turnL() {
-    const arr = this.state.split('');
-    rotateFaceClockwise(arr, 36);
-
-    const temp = [arr[0], arr[3], arr[6]]; // U left col
-    // U left col <- B right col (reversed)
-    arr[0] = arr[53];
-    arr[3] = arr[50];
-    arr[6] = arr[47];
-
-    // B right col <- D left col (reversed)
-    arr[47] = arr[33];
-    arr[50] = arr[30];
-    arr[53] = arr[27];
-
-    // D left col <- F left col
-    arr[27] = arr[18];
-    arr[30] = arr[21];
-    arr[33] = arr[24];
-
-    // F left col <- U left col (temp)
-    arr[18] = temp[0];
-    arr[21] = temp[1];
-    arr[24] = temp[2];
-
-    this.state = arr.join('');
-    return this.state;
+    return turnL(this);
   }
 
-  /**
-   * Turns the Right (R) face clockwise.
-   * - Primary face: R (9-17) rotated clockwise.
-   * - Adjacent edges: U right col, B left col, D right col, F right col shifted clockwise.
-   * @returns {string} The updated 54-character state string.
-   */
   turnR() {
-    const arr = this.state.split('');
-    rotateFaceClockwise(arr, 9);
-
-    const temp = [arr[2], arr[5], arr[8]]; // U right col
-    // U right col <- F right col
-    arr[2] = arr[20];
-    arr[5] = arr[23];
-    arr[8] = arr[26];
-
-    // F right col <- D right col
-    arr[20] = arr[29];
-    arr[23] = arr[32];
-    arr[26] = arr[35];
-
-    // D right col <- B left col (reversed)
-    arr[29] = arr[51];
-    arr[32] = arr[48];
-    arr[35] = arr[45];
-
-    // B left col <- U right col (temp reversed)
-    arr[45] = temp[2];
-    arr[48] = temp[1];
-    arr[51] = temp[0];
-
-    this.state = arr.join('');
-    return this.state;
+    return turnR(this);
   }
 
-  /**
-   * Turns the Up (U) face counter-clockwise (U').
-   * Executed by performing 3 clockwise U turns.
-   * @returns {string} The updated 54-character state string.
-   */
   turnUPrime() {
-    this.turnU();
-    this.turnU();
-    return this.turnU();
+    return turnUPrime(this);
   }
 
-  /**
-   * Turns the Right (R) face counter-clockwise (R').
-   * Executed by performing 3 clockwise R turns.
-   * @returns {string} The updated 54-character state string.
-   */
-  turnRPrime() {
-    this.turnR();
-    this.turnR();
-    return this.turnR();
-  }
-
-  /**
-   * Turns the Front (F) face counter-clockwise (F').
-   * Executed by performing 3 clockwise F turns.
-   * @returns {string} The updated 54-character state string.
-   */
-  turnFPrime() {
-    this.turnF();
-    this.turnF();
-    return this.turnF();
-  }
-
-  /**
-   * Turns the Down (D) face counter-clockwise (D').
-   * Executed by performing 3 clockwise D turns.
-   * @returns {string} The updated 54-character state string.
-   */
   turnDPrime() {
-    this.turnD();
-    this.turnD();
-    return this.turnD();
+    return turnDPrime(this);
   }
 
-  /**
-   * Turns the Left (L) face counter-clockwise (L').
-   * Executed by performing 3 clockwise L turns.
-   * @returns {string} The updated 54-character state string.
-   */
-  turnLPrime() {
-    this.turnL();
-    this.turnL();
-    return this.turnL();
+  turnFPrime() {
+    return turnFPrime(this);
   }
 
-  /**
-   * Turns the Back (B) face counter-clockwise (B').
-   * Executed by performing 3 clockwise B turns.
-   * @returns {string} The updated 54-character state string.
-   */
   turnBPrime() {
-    this.turnB();
-    this.turnB();
-    return this.turnB();
+    return turnBPrime(this);
+  }
+
+  turnLPrime() {
+    return turnLPrime(this);
+  }
+
+  turnRPrime() {
+    return turnRPrime(this);
   }
 }
 
