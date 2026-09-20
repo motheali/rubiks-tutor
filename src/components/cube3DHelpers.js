@@ -226,3 +226,131 @@ export function getExposedStickers(x, y, z, cubeState) {
   return stickers;
 }
 
+/**
+ * Returns rotation kinematics and cubie participation predicate for a given move notation.
+ * Supports:
+ * - Standard single-layer face turns: U, R, F, D, L, B
+ * - Lowercase 2-layer wide turns: u, r, f, d, l, b
+ * - Slice moves: M, E, S
+ * - Primes (' or prime) and double turns (2)
+ * - UI button format prefix: turnU, turnRPrime, etc.
+ *
+ * @param {string} move
+ * @returns {{ axis: 'x'|'y'|'z', targetAngle: number, isCubieActive: (x: number, y: number, z: number) => boolean, base: string } | null}
+ */
+export function getMoveRotationInfo(move) {
+  if (!move || typeof move !== 'string') return null;
+  let str = move.trim();
+  if (str.startsWith('turn')) {
+    str = str.slice(4);
+  }
+  if (!str) return null;
+
+  const isPrime = str.includes("'") || str.toLowerCase().includes('prime');
+  const isDouble = str.includes('2');
+  const base = str[0];
+
+  let axis;
+  let baseAngle;
+  let isCubieActive;
+
+  switch (base) {
+    // Standard face turns (9 cubies)
+    case 'R':
+      axis = 'x';
+      baseAngle = -Math.PI / 2;
+      isCubieActive = (x) => x === 1;
+      break;
+    case 'L':
+      axis = 'x';
+      baseAngle = Math.PI / 2;
+      isCubieActive = (x) => x === -1;
+      break;
+    case 'U':
+      axis = 'y';
+      baseAngle = -Math.PI / 2;
+      isCubieActive = (_x, y) => y === 1;
+      break;
+    case 'D':
+      axis = 'y';
+      baseAngle = Math.PI / 2;
+      isCubieActive = (_x, y) => y === -1;
+      break;
+    case 'F':
+      axis = 'z';
+      baseAngle = -Math.PI / 2;
+      isCubieActive = (_x, _y, z) => z === 1;
+      break;
+    case 'B':
+      axis = 'z';
+      baseAngle = Math.PI / 2;
+      isCubieActive = (_x, _y, z) => z === -1;
+      break;
+
+    // Slice turns (9 cubies)
+    case 'M':
+      axis = 'x';
+      baseAngle = Math.PI / 2; // Follows L
+      isCubieActive = (x) => x === 0;
+      break;
+    case 'E':
+      axis = 'y';
+      baseAngle = Math.PI / 2; // Follows D
+      isCubieActive = (_x, y) => y === 0;
+      break;
+    case 'S':
+      axis = 'z';
+      baseAngle = -Math.PI / 2; // Follows F
+      isCubieActive = (_x, _y, z) => z === 0;
+      break;
+
+    // 2-layer wide turns (18 cubies)
+    case 'r':
+      axis = 'x';
+      baseAngle = -Math.PI / 2; // Follows R
+      isCubieActive = (x) => x >= 0;
+      break;
+    case 'l':
+      axis = 'x';
+      baseAngle = Math.PI / 2; // Follows L
+      isCubieActive = (x) => x <= 0;
+      break;
+    case 'u':
+      axis = 'y';
+      baseAngle = -Math.PI / 2; // Follows U
+      isCubieActive = (_x, y) => y >= 0;
+      break;
+    case 'd':
+      axis = 'y';
+      baseAngle = Math.PI / 2; // Follows D
+      isCubieActive = (_x, y) => y <= 0;
+      break;
+    case 'f':
+      axis = 'z';
+      baseAngle = -Math.PI / 2; // Follows F
+      isCubieActive = (_x, _y, z) => z >= 0;
+      break;
+    case 'b':
+      axis = 'z';
+      baseAngle = Math.PI / 2; // Follows B
+      isCubieActive = (_x, _y, z) => z <= 0;
+      break;
+
+    default:
+      return null;
+  }
+
+  let targetAngle = baseAngle;
+  if (isPrime) {
+    targetAngle = -baseAngle;
+  } else if (isDouble) {
+    targetAngle = baseAngle * 2;
+  }
+
+  return {
+    base,
+    axis,
+    targetAngle,
+    isCubieActive,
+  };
+}

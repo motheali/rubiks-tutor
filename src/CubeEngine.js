@@ -315,6 +315,259 @@ export function turnBPrime(prevState) {
   return turnB(turnB(turnB(prevState)));
 }
 
+/**
+ * Turns the Equator (E) middle slice clockwise (follows D). Pure function.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnE(prevState) {
+  const arr = Array.isArray(prevState)
+    ? JSON.parse(JSON.stringify(prevState))
+    : (typeof prevState === 'object' && prevState !== null && 'state' in prevState ? prevState.state : prevState || SOLVED_STATE).split('');
+
+  const temp = [arr[21], arr[22], arr[23]];
+  arr[21] = arr[39];
+  arr[22] = arr[40];
+  arr[23] = arr[41];
+
+  arr[39] = arr[48];
+  arr[40] = arr[49];
+  arr[41] = arr[50];
+
+  arr[48] = arr[12];
+  arr[49] = arr[13];
+  arr[50] = arr[14];
+
+  arr[12] = temp[0];
+  arr[13] = temp[1];
+  arr[14] = temp[2];
+
+  if (Array.isArray(prevState)) return arr;
+  const resultStr = arr.join('');
+  return typeof prevState === 'object' && prevState !== null && 'state' in prevState
+    ? new Cube(resultStr)
+    : resultStr;
+}
+
+/**
+ * Turns the Equator (E) middle slice counter-clockwise (E'). Pure function.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnEPrime(prevState) {
+  const arr = Array.isArray(prevState)
+    ? JSON.parse(JSON.stringify(prevState))
+    : (typeof prevState === 'object' && prevState !== null && 'state' in prevState ? prevState.state : prevState || SOLVED_STATE).split('');
+
+  const temp = [arr[21], arr[22], arr[23]];
+  arr[21] = arr[12];
+  arr[22] = arr[13];
+  arr[23] = arr[14];
+
+  arr[12] = arr[48];
+  arr[13] = arr[49];
+  arr[14] = arr[50];
+
+  arr[48] = arr[39];
+  arr[49] = arr[40];
+  arr[50] = arr[41];
+
+  arr[39] = temp[0];
+  arr[40] = temp[1];
+  arr[41] = temp[2];
+
+  if (Array.isArray(prevState)) return arr;
+  const resultStr = arr.join('');
+  return typeof prevState === 'object' && prevState !== null && 'state' in prevState
+    ? new Cube(resultStr)
+    : resultStr;
+}
+
+/**
+ * Turns the Middle (M) slice downwards (follows L). Pure function.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnM(prevState) {
+  const arr = Array.isArray(prevState)
+    ? JSON.parse(JSON.stringify(prevState))
+    : (typeof prevState === 'object' && prevState !== null && 'state' in prevState ? prevState.state : prevState || SOLVED_STATE).split('');
+
+  const temp = [arr[1], arr[4], arr[7]];
+  arr[1] = arr[52];
+  arr[4] = arr[49];
+  arr[7] = arr[46];
+
+  arr[52] = arr[28];
+  arr[49] = arr[31];
+  arr[46] = arr[34];
+
+  arr[28] = arr[19];
+  arr[31] = arr[22];
+  arr[34] = arr[25];
+
+  arr[19] = temp[0];
+  arr[22] = temp[1];
+  arr[25] = temp[2];
+
+  if (Array.isArray(prevState)) return arr;
+  const resultStr = arr.join('');
+  return typeof prevState === 'object' && prevState !== null && 'state' in prevState
+    ? new Cube(resultStr)
+    : resultStr;
+}
+
+/**
+ * Turns the Middle (M) slice upwards (M'). Pure function.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnMPrime(prevState) {
+  const arr = Array.isArray(prevState)
+    ? JSON.parse(JSON.stringify(prevState))
+    : (typeof prevState === 'object' && prevState !== null && 'state' in prevState ? prevState.state : prevState || SOLVED_STATE).split('');
+
+  const temp = [arr[1], arr[4], arr[7]];
+  arr[1] = arr[19];
+  arr[4] = arr[22];
+  arr[7] = arr[25];
+
+  arr[19] = arr[28];
+  arr[22] = arr[31];
+  arr[25] = arr[34];
+
+  arr[28] = arr[52];
+  arr[31] = arr[49];
+  arr[34] = arr[46];
+
+  arr[52] = temp[0];
+  arr[49] = temp[1];
+  arr[46] = temp[2];
+
+  if (Array.isArray(prevState)) return arr;
+  const resultStr = arr.join('');
+  return typeof prevState === 'object' && prevState !== null && 'state' in prevState
+    ? new Cube(resultStr)
+    : resultStr;
+}
+
+/**
+ * Turns the Standing (S) slice clockwise (follows F). Pure function.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnS(prevState) {
+  const arr = Array.isArray(prevState)
+    ? JSON.parse(JSON.stringify(prevState))
+    : (typeof prevState === 'object' && prevState !== null && 'state' in prevState ? prevState.state : prevState || SOLVED_STATE).split('');
+
+  const temp = [arr[3], arr[4], arr[5]];
+  arr[3] = arr[43];
+  arr[4] = arr[40];
+  arr[5] = arr[37];
+
+  arr[43] = arr[32];
+  arr[40] = arr[31];
+  arr[37] = arr[30];
+
+  arr[32] = arr[10];
+  arr[31] = arr[13];
+  arr[30] = arr[16];
+
+  arr[10] = temp[0];
+  arr[13] = temp[1];
+  arr[16] = temp[2];
+
+  if (Array.isArray(prevState)) return arr;
+  const resultStr = arr.join('');
+  return typeof prevState === 'object' && prevState !== null && 'state' in prevState
+    ? new Cube(resultStr)
+    : resultStr;
+}
+
+/**
+ * Turns the Standing (S) slice counter-clockwise (S'). Pure function.
+ * @param {string|string[]|Cube} prevState
+ * @returns {string|string[]|Cube}
+ */
+export function turnSPrime(prevState) {
+  const arr = Array.isArray(prevState)
+    ? JSON.parse(JSON.stringify(prevState))
+    : (typeof prevState === 'object' && prevState !== null && 'state' in prevState ? prevState.state : prevState || SOLVED_STATE).split('');
+
+  const temp = [arr[3], arr[4], arr[5]];
+  arr[3] = arr[10];
+  arr[4] = arr[13];
+  arr[5] = arr[16];
+
+  arr[10] = arr[32];
+  arr[13] = arr[31];
+  arr[16] = arr[30];
+
+  arr[32] = arr[43];
+  arr[31] = arr[40];
+  arr[30] = arr[37];
+
+  arr[43] = temp[0];
+  arr[40] = temp[1];
+  arr[37] = temp[2];
+
+  if (Array.isArray(prevState)) return arr;
+  const resultStr = arr.join('');
+  return typeof prevState === 'object' && prevState !== null && 'state' in prevState
+    ? new Cube(resultStr)
+    : resultStr;
+}
+
+// 2-Layer Wide Turns
+export function turnd(prevState) {
+  return turnE(turnD(prevState));
+}
+
+export function turndPrime(prevState) {
+  return turnEPrime(turnDPrime(prevState));
+}
+
+export function turnu(prevState) {
+  return turnEPrime(turnU(prevState));
+}
+
+export function turnuPrime(prevState) {
+  return turnE(turnUPrime(prevState));
+}
+
+export function turnr(prevState) {
+  return turnMPrime(turnR(prevState));
+}
+
+export function turnrPrime(prevState) {
+  return turnM(turnRPrime(prevState));
+}
+
+export function turnl(prevState) {
+  return turnM(turnL(prevState));
+}
+
+export function turnlPrime(prevState) {
+  return turnMPrime(turnLPrime(prevState));
+}
+
+export function turnf(prevState) {
+  return turnS(turnF(prevState));
+}
+
+export function turnfPrime(prevState) {
+  return turnSPrime(turnFPrime(prevState));
+}
+
+export function turnb(prevState) {
+  return turnSPrime(turnB(prevState));
+}
+
+export function turnbPrime(prevState) {
+  return turnS(turnBPrime(prevState));
+}
+
 export class Cube {
   /**
    * Initializes the cube state.
@@ -382,6 +635,78 @@ export class Cube {
 
   turnRPrime() {
     return turnRPrime(this);
+  }
+
+  turnd() {
+    return turnd(this);
+  }
+
+  turndPrime() {
+    return turndPrime(this);
+  }
+
+  turnu() {
+    return turnu(this);
+  }
+
+  turnuPrime() {
+    return turnuPrime(this);
+  }
+
+  turnr() {
+    return turnr(this);
+  }
+
+  turnrPrime() {
+    return turnrPrime(this);
+  }
+
+  turnl() {
+    return turnl(this);
+  }
+
+  turnlPrime() {
+    return turnlPrime(this);
+  }
+
+  turnf() {
+    return turnf(this);
+  }
+
+  turnfPrime() {
+    return turnfPrime(this);
+  }
+
+  turnb() {
+    return turnb(this);
+  }
+
+  turnbPrime() {
+    return turnbPrime(this);
+  }
+
+  turnM() {
+    return turnM(this);
+  }
+
+  turnMPrime() {
+    return turnMPrime(this);
+  }
+
+  turnE() {
+    return turnE(this);
+  }
+
+  turnEPrime() {
+    return turnEPrime(this);
+  }
+
+  turnS() {
+    return turnS(this);
+  }
+
+  turnSPrime() {
+    return turnSPrime(this);
   }
 }
 

@@ -4,6 +4,8 @@ import { Canvas } from '@react-three/fiber';
 import { Cube as CubeEngine, SOLVED_STATE } from './CubeEngine';
 import { validateCubeState } from './CubeValidator';
 import Cube3D from './components/Cube3D';
+import CameraScanner from './components/CameraScanner';
+import { COLOR_NAME_TO_KEY } from './components/cameraScannerMath';
 import { getInverseMove, applyMove, toSolverFormat } from './tutorUtils';
 import './App.css';
 
@@ -93,6 +95,13 @@ export default function App() {
   const [activeBrush, setActiveBrush] = useState('U'); // Default 'U' (White)
   const [isEditMode, setIsEditMode] = useState(false);
 
+  // Application Mode: 'learn' (default) or 'practice'
+  const [appMode, setAppMode] = useState('learn');
+  // Selected Training Case for Learn Mode
+  const [selectedCase, setSelectedCase] = useState('');
+  // Camera Scanner modal display state
+  const [showCameraScanner, setShowCameraScanner] = useState(false);
+
   // Speed slider state (Animation Speed in ms)
   const [animationSpeed, setAnimationSpeed] = useState(400);
 
@@ -105,6 +114,12 @@ export default function App() {
   const setUIError = setSolverError;
   const isCancelledRef = useRef(false);
 
+  // Smooth rotation animation states & refs
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [animatingMove, setAnimatingMove] = useState(null);
+  const pendingAnimationResolveRef = useRef(null);
+  const autoSolveTimeoutRef = useRef(null);
+
   // Ref-based locks and values to synchronously prevent stale closures and race conditions
   const isAnimatingRef = useRef(false);
   const isSolvingRef = useRef(false);
@@ -112,8 +127,13 @@ export default function App() {
   const animationSpeedRef = useRef(400);
   const solveSequenceRef = useRef([]);
   const currentStepIndexRef = useRef(0);
+  const cubeRef = useRef(cube);
 
   // Keep refs synchronized with React state
+  useEffect(() => {
+    cubeRef.current = cube;
+  }, [cube]);
+
   useEffect(() => {
     isSolvingRef.current = isSolving;
   }, [isSolving]);
@@ -134,6 +154,10 @@ export default function App() {
     currentStepIndexRef.current = currentStepIndex;
   }, [currentStepIndex]);
 
+  useEffect(() => {
+    isAnimatingRef.current = isAnimating;
+  }, [isAnimating]);
+
   const stateString = cube.state;
 
   // Real-time cube physical state validation
@@ -151,31 +175,96 @@ export default function App() {
     return counts;
   }, [stateString]);
 
-  // Execute turn on Cube engine and update React state using functional update
-  const handleTurn = useCallback((turnFunction) => {
-    if (isSolvingRef.current || isAnimatingRef.current || isEditModeRef.current) return;
-    setCube((prevCube) => {
-      if (typeof prevCube[turnFunction] === 'function') {
-        const next = prevCube[turnFunction]();
-        return next instanceof CubeEngine ? next : new CubeEngine(next);
-      }
-      return prevCube;
-    });
-    setMoveCount((count) => count + 1);
+  // Callback invoked by Cube3D when smooth rotation interpolation completes
+  const handleAnimationComplete = useCallback(() => {
+    if (pendingAnimationResolveRef.current) {
+      const resolve = pendingAnimationResolveRef.current;
+      pendingAnimationResolveRef.current = null;
+      resolve();
+    }
   }, []);
 
-  // Halt auto-solver playback immediately (synchronous ref updates + state update)
+  // Triggers smooth 3D rotation animation in Cube3D and returns a Promise that resolves on completion
+  const animateSingleMove = useCallback((move) => {
+    return new Promise((resolve) => {
+      isAnimatingRef.current = true;
+      setIsAnimating(true);
+      pendingAnimationResolveRef.current = resolve;
+      setAnimatingMove({
+        move,
+        duration: animationSpeedRef.current,
+        id: Date.now() + Math.random(),
+      });
+    });
+  }, []);
+
+  // Force-cancels any in-flight animation immediately
+  const cancelInFlightAnimation = useCallback(() => {
+    if (pendingAnimationResolveRef.current) {
+      const resolve = pendingAnimationResolveRef.current;
+      pendingAnimationResolveRef.current = null;
+      resolve();
+    }
+    setAnimatingMove(null);
+    isAnimatingRef.current = false;
+    setIsAnimating(false);
+  }, []);
+
+  // Halt auto-solver playback immediately (Edge Case 3: fires clearTimeout to instantly kill loop)
   const haltAutoSolver = useCallback(() => {
     if (isSolvingRef.current) {
       isCancelledRef.current = true;
       isSolvingRef.current = false;
       setIsSolving(false);
+      if (autoSolveTimeoutRef.current) {
+        clearTimeout(autoSolveTimeoutRef.current);
+        autoSolveTimeoutRef.current = null;
+      }
       setSolverStatus('Auto-solve paused. Tutor mode active.');
     }
   }, []);
 
-  // Tutor Mode: Execute the next move in solveSequence and increment currentStepIndex
-  const handleNextStep = useCallback(() => {
+  // Helper to convert turnFunction (e.g. 'turnU', 'turnRPrime') to standard notation ('U', "R'")
+  const turnFunctionToMove = (funcName) => {
+    let m = funcName.replace(/^turn/, '');
+    if (m.endsWith('Prime')) {
+      m = m.replace(/Prime$/, "'");
+    }
+    return m;
+  };
+
+  // Execute turn on Cube engine with smooth 3D rotation animation and focus dimming
+  const handleTurn = useCallback(async (turnFunction) => {
+    if (isSolvingRef.current || isAnimatingRef.current || isEditModeRef.current) return;
+    const prevCube = cubeRef.current;
+    if (typeof prevCube[turnFunction] !== 'function') return;
+    const nextRaw = prevCube[turnFunction]();
+    const nextCube = nextRaw instanceof CubeEngine ? nextRaw : new CubeEngine(nextRaw);
+    if (!nextCube || nextCube.state === prevCube.state) return;
+
+    const moveNotation = turnFunctionToMove(turnFunction);
+
+    try {
+      await animateSingleMove(moveNotation);
+      // Synchronous handoff: commit nextCube state and clear animatingMove
+      cubeRef.current = nextCube;
+      setCube(nextCube);
+      setAnimatingMove(null);
+      setMoveCount((count) => count + 1);
+    } catch (e) {
+      console.error('Turn animation error:', e);
+      cubeRef.current = nextCube;
+      setCube(nextCube);
+      setAnimatingMove(null);
+    } finally {
+      isAnimatingRef.current = false;
+      setIsAnimating(false);
+    }
+  }, [animateSingleMove]);
+
+  // Tutor Mode: Execute the next move in solveSequence with smooth 3D rotation animation
+  const handleNextStep = useCallback(async () => {
+    // Edge Case 3: Instantly kill ongoing Auto-Solve loop if active
     if (isSolvingRef.current) {
       haltAutoSolver();
     }
@@ -186,20 +275,44 @@ export default function App() {
     if (!seq || idx >= seq.length) return;
 
     const move = seq[idx];
-    setCube((prev) => applyMove(prev, move));
-    setMoveCount((count) => count + (move.includes('2') ? 2 : 1));
-    const nextIdx = idx + 1;
-    currentStepIndexRef.current = nextIdx;
-    setCurrentStepIndex(nextIdx);
-    if (nextIdx === seq.length) {
-      setSolverStatus(`Solved in ${seq.length} moves! 🎉`);
-    } else {
-      setSolverStatus(`Tutor Mode: Step ${nextIdx} of ${seq.length}`);
-    }
-  }, [haltAutoSolver]);
+    const prevCube = cubeRef.current;
+    const nextCube = applyMove(prevCube, move);
 
-  // Tutor Mode: Execute the inverse (Prime) of previous move and decrement currentStepIndex
-  const handlePrevStep = useCallback(() => {
+    // Strict Guardrail: UI step counter ONLY increments when a valid move executes on the 3D model
+    if (!nextCube || nextCube.state === prevCube.state) {
+      console.warn(`handleNextStep: Unrecognized or non-executing move "${move}". Step counter will not advance.`);
+      return;
+    }
+
+    try {
+      await animateSingleMove(move);
+      // Synchronous handoff: commit nextCube state and clear animatingMove in the same commit
+      cubeRef.current = nextCube;
+      setCube(nextCube);
+      setAnimatingMove(null);
+      setMoveCount((count) => count + (move.includes('2') ? 2 : 1));
+      const nextIdx = idx + 1;
+      currentStepIndexRef.current = nextIdx;
+      setCurrentStepIndex(nextIdx);
+      if (nextIdx === seq.length) {
+        setSolverStatus(`Solved in ${seq.length} moves! 🎉`);
+      } else {
+        setSolverStatus(`Tutor Mode: Step ${nextIdx} of ${seq.length}`);
+      }
+    } catch (e) {
+      console.error('Next step animation error:', e);
+      cubeRef.current = nextCube;
+      setCube(nextCube);
+      setAnimatingMove(null);
+    } finally {
+      isAnimatingRef.current = false;
+      setIsAnimating(false);
+    }
+  }, [haltAutoSolver, animateSingleMove]);
+
+  // Tutor Mode: Execute the inverse (Prime) of previous move with smooth 3D rotation animation
+  const handlePrevStep = useCallback(async () => {
+    // Edge Case 3: Instantly kill ongoing Auto-Solve loop if active
     if (isSolvingRef.current) {
       haltAutoSolver();
     }
@@ -211,20 +324,45 @@ export default function App() {
 
     const prevMove = seq[idx - 1];
     const inverseMove = getInverseMove(prevMove);
-    setCube((prev) => applyMove(prev, inverseMove));
-    setMoveCount((count) => Math.max(0, count - (prevMove.includes('2') ? 2 : 1)));
-    const nextIdx = idx - 1;
-    currentStepIndexRef.current = nextIdx;
-    setCurrentStepIndex(nextIdx);
-    setSolverStatus(`Tutor Mode: Step ${nextIdx} of ${seq.length}`);
-  }, [haltAutoSolver]);
+    const prevCube = cubeRef.current;
+    const nextCube = applyMove(prevCube, inverseMove);
+
+    // Strict Guardrail: UI step counter ONLY decrements when a valid inverse move executes on the 3D model
+    if (!nextCube || nextCube.state === prevCube.state) {
+      console.warn(`handlePrevStep: Unrecognized or non-executing inverse move "${inverseMove}". Step counter will not retreat.`);
+      return;
+    }
+
+    try {
+      await animateSingleMove(inverseMove);
+      // Synchronous handoff: commit nextCube state and clear animatingMove in the same commit
+      cubeRef.current = nextCube;
+      setCube(nextCube);
+      setAnimatingMove(null);
+      setMoveCount((count) => Math.max(0, count - (prevMove.includes('2') ? 2 : 1)));
+      const nextIdx = idx - 1;
+      currentStepIndexRef.current = nextIdx;
+      setCurrentStepIndex(nextIdx);
+      setSolverStatus(`Tutor Mode: Step ${nextIdx} of ${seq.length}`);
+    } catch (e) {
+      console.error('Prev step animation error:', e);
+      cubeRef.current = nextCube;
+      setCube(nextCube);
+      setAnimatingMove(null);
+    } finally {
+      isAnimatingRef.current = false;
+      setIsAnimating(false);
+    }
+  }, [haltAutoSolver, animateSingleMove]);
 
   const handleNextStepRef = useRef(handleNextStep);
   const handlePrevStepRef = useRef(handlePrevStep);
+  const handleTurnRef = useRef(handleTurn);
 
   useEffect(() => {
     handleNextStepRef.current = handleNextStep;
     handlePrevStepRef.current = handlePrevStep;
+    handleTurnRef.current = handleTurn;
   });
 
   // Bulletproof Speed-Cubing, Tutor Mode, and Palette Keyboard Controls
@@ -263,6 +401,7 @@ export default function App() {
       }
 
       // 4. Tutor Mode Keyboard Controls: ArrowRight -> Next Move, ArrowLeft -> Prev Move
+      // Edge Case 3: If Auto-Solve playback is running, pressing Arrow keys cancels Auto-Solve instantly!
       if (event.key === 'ArrowRight') {
         event.preventDefault();
         handleNextStepRef.current?.();
@@ -275,12 +414,12 @@ export default function App() {
         return;
       }
 
-      // 5. Solver Lock Guardrail: do not execute moves while auto-solver playback animation is running (ref-based lock)
+      // 5. Solver Lock Guardrail: do not execute face moves while auto-solver playback animation is running
       if (isSolvingRef.current) {
         return;
       }
 
-      // 6. Animation Lock Guardrail: do not execute moves while 3D rotation animation is in progress (ref-based lock)
+      // 6. Animation Lock Guardrail: do not execute face moves while 3D rotation animation is in progress
       if (isAnimatingRef.current) {
         return;
       }
@@ -307,15 +446,8 @@ export default function App() {
       // Shift key triggers Prime (counter-clockwise) version of the move
       const turnFunction = event.shiftKey ? `turn${face}Prime` : `turn${face}`;
 
-      // Functional state update ensures rapid speed-cubing moves never encounter stale state closures
-      setCube((prevCube) => {
-        if (typeof prevCube[turnFunction] === 'function') {
-          const next = prevCube[turnFunction]();
-          return next instanceof CubeEngine ? next : new CubeEngine(next);
-        }
-        return prevCube;
-      });
-      setMoveCount((count) => count + 1);
+      // Smoothly animate the turn
+      handleTurnRef.current?.(turnFunction);
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -326,10 +458,8 @@ export default function App() {
 
   // Reset to solved state
   const handleReset = () => {
-    isCancelledRef.current = true;
-    isSolvingRef.current = false;
-    isAnimatingRef.current = false;
-    setIsSolving(false);
+    haltAutoSolver();
+    cancelInFlightAnimation();
     setSolveSequence([]);
     solveSequenceRef.current = [];
     setCurrentStepIndex(0);
@@ -337,16 +467,15 @@ export default function App() {
     setSolverStatus('');
     setSolverError('');
     cube.reset();
+    cubeRef.current = new CubeEngine(cube.state);
     setCube(new CubeEngine(cube.state));
     setMoveCount(0);
   };
 
   // Set cube state to blank canvas, preserving locked physical centers
   const handleClearCube = () => {
-    isCancelledRef.current = true;
-    isSolvingRef.current = false;
-    isAnimatingRef.current = false;
-    setIsSolving(false);
+    haltAutoSolver();
+    cancelInFlightAnimation();
     setSolveSequence([]);
     solveSequenceRef.current = [];
     setCurrentStepIndex(0);
@@ -360,7 +489,9 @@ export default function App() {
     blankArr[31] = 'D';
     blankArr[40] = 'L';
     blankArr[49] = 'B';
-    setCube(new CubeEngine(blankArr.join('')));
+    const newBlank = new CubeEngine(blankArr.join(''));
+    cubeRef.current = newBlank;
+    setCube(newBlank);
     setMoveCount(0);
   };
 
@@ -374,6 +505,46 @@ export default function App() {
     chars[tileIndex] = activeBrush;
     setCube(new CubeEngine(chars.join('')));
   };
+
+  // Apply scanned 9 colors to the specified cube face (mirroring Edit Mode paint logic)
+  const handleApplyFace = useCallback((matchedColorsArray, targetFaceKey) => {
+    if (!matchedColorsArray || matchedColorsArray.length !== 9) return;
+
+    // Determine target face key (e.g. 'F', 'R', 'U', etc.)
+    const faceKey = targetFaceKey || COLOR_NAME_TO_KEY[matchedColorsArray[4]] || 'F';
+    const faceDef = CUBE_FACES.find((f) => f.key === faceKey) || CUBE_FACES.find((f) => f.key === 'F');
+    const startIndex = faceDef.startIndex;
+
+    const chars = cubeRef.current.state.split('');
+
+    for (let i = 0; i < 9; i++) {
+      const tileIndex = startIndex + i;
+      // Mirror Edit Mode: locked physical center tile cannot be overwritten
+      if (LOCKED_CENTER_INDICES.has(tileIndex)) {
+        continue;
+      }
+      const rawColor = matchedColorsArray[i];
+      const colorKey = COLOR_NAME_TO_KEY[rawColor] || rawColor;
+      if (['U', 'R', 'F', 'D', 'L', 'B'].includes(colorKey)) {
+        chars[tileIndex] = colorKey;
+      }
+    }
+
+    const updatedCube = new CubeEngine(chars.join(''));
+    cubeRef.current = updatedCube;
+    setCube(updatedCube);
+
+    // Reset solver sequence states since cube state changed
+    setSolveSequence([]);
+    solveSequenceRef.current = [];
+    setCurrentStepIndex(0);
+    currentStepIndexRef.current = 0;
+    setSolverStatus('');
+    setSolverError('');
+
+    // Unmount camera component
+    setShowCameraScanner(false);
+  }, []);
 
   // Random 20-move scramble including clockwise and prime turns
   const handleScramble = () => {
@@ -451,19 +622,47 @@ export default function App() {
       currentStepIndexRef.current = 0;
       setSolverStatus(`Solving (${moves.length} moves)...`);
 
-      // 3. Auto-Playback Animation (using dynamic animationSpeedRef.current per move)
+      // 3. Auto-Playback Animation (using dynamic animationSpeedRef.current per move with smooth 3D rotation)
       for (let i = 0; i < moves.length; i++) {
         if (isCancelledRef.current) break;
 
         const move = moves[i];
+        const prevCube = cubeRef.current;
+        const nextCube = applyMove(prevCube, move);
 
-        setCube((prev) => applyMove(prev, move));
+        // Strict Guardrail: UI step counter ONLY increments when a valid, fully animated move successfully executes on the 3D model
+        if (!nextCube || nextCube.state === prevCube.state) {
+          console.warn(`handleVerifyAndSolve: Unrecognized or non-executing move "${move}". Step counter will not advance.`);
+          continue;
+        }
+
+        try {
+          await animateSingleMove(move);
+        } catch {
+          break;
+        }
+
+        if (isCancelledRef.current) {
+          setAnimatingMove(null);
+          break;
+        }
+
+        // Synchronous handoff: commit nextCube state and clear animatingMove in the same commit
+        cubeRef.current = nextCube;
+        setCube(nextCube);
+        setAnimatingMove(null);
         setMoveCount((count) => count + (move.includes('2') ? 2 : 1));
 
         currentStepIndexRef.current = i + 1;
         setCurrentStepIndex(i + 1);
 
-        await new Promise((resolve) => setTimeout(resolve, animationSpeedRef.current));
+        // Allow instant cancellation between steps via autoSolveTimeoutRef (Edge Case 3)
+        if (i < moves.length - 1 && !isCancelledRef.current) {
+          await new Promise((resolve) => {
+            autoSolveTimeoutRef.current = setTimeout(resolve, 20);
+          });
+          autoSolveTimeoutRef.current = null;
+        }
       }
 
       if (!isCancelledRef.current) {
@@ -474,356 +673,466 @@ export default function App() {
       setUIError("Solver Crash: " + (error.message || "Unknown error"));
       setSolverStatus('');
     } finally {
+      if (autoSolveTimeoutRef.current) {
+        clearTimeout(autoSolveTimeoutRef.current);
+        autoSolveTimeoutRef.current = null;
+      }
       isSolvingRef.current = false;
       setIsSolving(false);
+      isAnimatingRef.current = false;
+      setIsAnimating(false);
     }
   };
 
   return (
     <div className="app-container">
-      {/* Header */}
-      <header className="header-section">
-        <h1 className="header-title">Rubik&apos;s Cube Solver</h1>
-        <p className="header-subtitle">Interactive 3D Engine &amp; 2D Net Visualizer</p>
+      {/* Top Navigation Bar with Mode Selector */}
+      <header className="top-nav-bar">
+        <div className="nav-brand">
+          <span className="nav-logo" aria-hidden="true">🧊</span>
+          <div className="nav-title-group">
+            <h1 className="nav-title">Rubik&apos;s Tutor</h1>
+            <span className="nav-subtitle">Interactive 3D Engine &amp; Tutor</span>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <button
+            type="button"
+            className="nav-camera-btn"
+            onClick={() => setShowCameraScanner((prev) => !prev)}
+            title="Toggle Rubik's Cube Camera Scanner"
+          >
+            📷 Test Camera
+          </button>
+          <nav className="nav-mode-selector" aria-label="Application Environment Mode">
+            <button
+              type="button"
+              className={`nav-mode-btn ${appMode === 'learn' ? 'active' : ''}`}
+              onClick={() => setAppMode('learn')}
+            >
+              📚 Learn Mode
+            </button>
+            <button
+              type="button"
+              className={`nav-mode-btn ${appMode === 'practice' ? 'active' : ''}`}
+              onClick={() => setAppMode('practice')}
+            >
+              ⏱️ Practice Mode
+            </button>
+          </nav>
+        </div>
       </header>
 
-      {/* 3D Interactive Rubik's Cube Canvas */}
-      <section className="canvas-wrapper" aria-label="3D Rubik's Cube Viewer">
-        <Canvas
-          camera={{ position: [4.5, 3.5, 5.5], fov: 45 }}
-          style={{ width: '100%', height: '100%' }}
+      {/* Conditionally Rendered Camera Scanner Modal (Testing Mounting/Unmounting) */}
+      {showCameraScanner && (
+        <div
+          className="camera-modal-backdrop"
+          onClick={() => setShowCameraScanner(false)}
+          aria-modal="true"
+          role="dialog"
         >
-          <Cube3D cubeState={stateString} />
-        </Canvas>
-      </section>
-
-      {/* Solution Sequence & Playback Display */}
-      {(solveSequence.length > 0 || solverStatus || solverError) && (
-        <section className="solution-container" aria-label="Solution Playback">
-          <div className="solution-header">
-            <span>
-              {solveSequence.length > 0
-                ? `Solution Sequence (${solveSequence.length} moves)`
-                : 'Solver Status'}
-            </span>
-            {solverStatus && <span className="solution-status">{solverStatus}</span>}
-            {solverError && (
-              <span className="solution-status" style={{ color: '#f87171' }}>
-                {solverError}
-              </span>
-            )}
+          <div className="camera-modal-content" onClick={(e) => e.stopPropagation()}>
+            <CameraScanner
+              onClose={() => setShowCameraScanner(false)}
+              onApplyFace={handleApplyFace}
+            />
           </div>
-          {solveSequence.length > 0 && (
-            <>
-              <div className="solution-sequence">
-                {solveSequence.map((move, idx) => {
-                  const isCurrent = idx === currentStepIndex && currentStepIndex < solveSequence.length;
-                  const isDone = idx < currentStepIndex;
-                  return (
-                    <span
-                      key={idx}
-                      className={`solution-move ${isCurrent ? 'active-move' : ''} ${
-                        isDone ? 'completed-move' : ''
-                      }`}
-                      title={`Step ${idx + 1}: ${move}`}
-                    >
-                      {move}
-                    </span>
-                  );
-                })}
-              </div>
-
-              {/* Tutor Mode Step-by-Step Navigation Bar */}
-              <div className="tutor-controls-bar">
-                <button
-                  type="button"
-                  className="tutor-btn"
-                  onClick={handlePrevStep}
-                  disabled={currentStepIndex <= 0}
-                  title="Execute reverse of previous move (Key: ArrowLeft ←)"
-                >
-                  <span>◀ Prev Move</span>
-                  <kbd className="key-hint">←</kbd>
-                </button>
-                <span className="tutor-step-info">
-                  Step {currentStepIndex} of {solveSequence.length}
-                </span>
-                <button
-                  type="button"
-                  className="tutor-btn"
-                  onClick={handleNextStep}
-                  disabled={currentStepIndex >= solveSequence.length}
-                  title="Execute next move (Key: ArrowRight →)"
-                >
-                  <span>Next Move ▶</span>
-                  <kbd className="key-hint">→</kbd>
-                </button>
-              </div>
-            </>
-          )}
-        </section>
+        </div>
       )}
 
-      {/* Mode Switcher Toggle */}
-      <section className="mode-toggle-section">
-        <button
-          type="button"
-          className={`mode-toggle-btn ${isEditMode ? 'mode-edit-active' : ''}`}
-          onClick={() => setIsEditMode((prev) => !prev)}
-          disabled={isSolving}
-          title="Toggle between Scramble/Play mode and Input/Edit mode"
-        >
-          {isEditMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
-        </button>
-      </section>
-
-      {/* Interactive Color Palette (Paint Brush) */}
-      <section className="palette-section" aria-label="Color Palette">
-        <span className="palette-heading">
-          {isEditMode
-            ? `Active Brush: ${PALETTE_SWATCHES.find((s) => s.key === activeBrush)?.name || activeBrush}`
-            : 'Color Palette'}
-        </span>
-        <div className="palette-swatches">
-          {PALETTE_SWATCHES.map((swatch) => {
-            const isActive = activeBrush === swatch.key;
-            const currentCount = colorCounts[swatch.key] || 0;
-            return (
-              <button
-                key={swatch.key}
-                type="button"
-                className={`palette-swatch ${isActive ? 'active-brush' : ''}`}
-                style={{ '--swatch-color': swatch.color }}
-                onClick={() => setActiveBrush(swatch.key)}
-                title={`Select ${swatch.name} (${swatch.key}) Brush [Key: ${swatch.shortcut}]`}
+      {/* Main Content Area: Learn Mode (Split-Screen) vs Practice Mode (Placeholder) */}
+      {appMode === 'practice' ? (
+        <main className="practice-placeholder-container">
+          <div className="practice-placeholder-card">
+            <div className="practice-icon" aria-hidden="true">⏱️</div>
+            <h2 className="practice-title">Practice Mode Coming Soon</h2>
+            <p className="practice-desc">
+              Speedcubing timer, WCA inspection countdown, scramble generator, and session statistics will be available here.
+            </p>
+            <button
+              type="button"
+              className="primary-return-btn"
+              onClick={() => setAppMode('learn')}
+            >
+              Return to Learn Mode
+            </button>
+          </div>
+        </main>
+      ) : (
+        <main className="learn-split-layout">
+          {/* Left Viewport (approx. 60-70% width): 3D Rubik's Cube Canvas */}
+          <section className="learn-viewport-left" aria-label="3D Rubik's Cube Viewer">
+            <div className="viewport-canvas-container">
+              <Canvas
+                camera={{ position: [4.5, 3.5, 5.5], fov: 45 }}
+                style={{ width: '100%', height: '100%' }}
               >
-                <span
-                  className="swatch-indicator"
-                  style={{ backgroundColor: swatch.color, color: swatch.color }}
+                <Cube3D
+                  cubeState={stateString}
+                  animatingMove={animatingMove}
+                  onAnimationComplete={handleAnimationComplete}
                 />
-                <span>{swatch.name} ({swatch.key})</span>
-                {isEditMode && <kbd className="palette-key-hint">{swatch.shortcut}</kbd>}
-                <span
-                  className={`swatch-counter ${
-                    currentCount === 9
-                      ? 'count-complete'
-                      : currentCount > 9
-                      ? 'count-overflow'
-                      : ''
-                  }`}
-                  title={`${currentCount} of 9 ${swatch.name} stickers placed`}
-                >
-                  ({currentCount} / 9)
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        <p className="edit-instructions">
-          {isEditMode
-            ? 'Select a color swatch above (Keys: 1-6), then click any tile on the 2D Net below to paint it.'
-            : 'Toggle "Enter Edit Mode" to paint custom colors onto the 2D Net.'}
-        </p>
-      </section>
+              </Canvas>
+            </div>
+            <div className="viewport-hint-bar">
+              <span>Drag to orbit • Scroll to zoom • Notation keys: U, R, F, D, L, B (Shift for Prime)</span>
+            </div>
+          </section>
 
-      {/* Centered 2D Cross Net */}
-      <main className="grid-container">
-        <div className="cube-cross-net" aria-label="Flattened Rubik's Cube Net">
-          {CUBE_FACES.map((face) => {
-            const stickers = stateString
-              .slice(face.startIndex, face.startIndex + 9)
-              .split('');
-
-            return (
-              <div
-                key={face.key}
-                className="face-wrapper"
-                style={{ gridArea: face.area }}
+          {/* Right Control Panel (approx. 30-40% width): Scrollable Sidebar Panel */}
+          <aside className="learn-sidebar-right" aria-label="Tutor Control Panel">
+            {/* 1. Training Case Selector */}
+            <div className="sidebar-card training-case-card">
+              <label htmlFor="training-case-select" className="sidebar-card-title">
+                🎯 Select Training Case
+              </label>
+              <select
+                id="training-case-select"
+                className="training-case-dropdown"
+                value={selectedCase}
+                onChange={(e) => setSelectedCase(e.target.value)}
               >
-                <span className="face-name">{face.name} ({face.key})</span>
-                <div className="face-grid">
-                  {stickers.map((letter, idx) => {
-                    const tileIndex = face.startIndex + idx;
-                    const isCenter = LOCKED_CENTER_INDICES.has(tileIndex);
+                <option value="">-- Choose an Algorithm Set --</option>
+                <option value="beginner-cross">Beginner Cross</option>
+                <option value="f2l">F2L Insertions (First Two Layers)</option>
+                <option value="oll">OLL (Orient Last Layer)</option>
+                <option value="pll">PLL (Permute Last Layer)</option>
+              </select>
+            </div>
+
+            {/* 2. Solution Sequence & Step-by-Step Navigation Bar */}
+            {(solveSequence.length > 0 || solverStatus || solverError) && (
+              <div className="sidebar-card solution-container" aria-label="Solution Playback">
+                <div className="solution-header">
+                  <span>
+                    {solveSequence.length > 0
+                      ? `Solution Sequence (${solveSequence.length} moves)`
+                      : 'Solver Status'}
+                  </span>
+                  {solverStatus && <span className="solution-status">{solverStatus}</span>}
+                  {solverError && (
+                    <span className="solution-status" style={{ color: '#f87171' }}>
+                      {solverError}
+                    </span>
+                  )}
+                </div>
+                {solveSequence.length > 0 && (
+                  <>
+                    <div className="solution-sequence">
+                      {solveSequence.map((move, idx) => {
+                        const isCurrent = idx === currentStepIndex && currentStepIndex < solveSequence.length;
+                        const isDone = idx < currentStepIndex;
+                        return (
+                          <span
+                            key={idx}
+                            className={`solution-move ${isCurrent ? 'active-move' : ''} ${
+                              isDone ? 'completed-move' : ''
+                            }`}
+                            title={`Step ${idx + 1}: ${move}`}
+                          >
+                            {move}
+                          </span>
+                        );
+                      })}
+                    </div>
+
+                    {/* Tutor Mode Step-by-Step Navigation Bar */}
+                    <div className="tutor-controls-bar">
+                      <button
+                        type="button"
+                        className="tutor-btn"
+                        onClick={handlePrevStep}
+                        disabled={currentStepIndex <= 0 || (isAnimating && !isSolving)}
+                        title="Execute reverse of previous move (Key: ArrowLeft ←)"
+                      >
+                        <span>◀ Prev Move</span>
+                        <kbd className="key-hint">←</kbd>
+                      </button>
+                      <span className="tutor-step-info">
+                        Step {currentStepIndex} of {solveSequence.length}
+                      </span>
+                      <button
+                        type="button"
+                        className="tutor-btn"
+                        onClick={handleNextStep}
+                        disabled={currentStepIndex >= solveSequence.length || (isAnimating && !isSolving)}
+                        title="Execute next move (Key: ArrowRight →)"
+                      >
+                        <span>Next Move ▶</span>
+                        <kbd className="key-hint">→</kbd>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* 3. Speed Slider for Animation Playback */}
+            <div className="sidebar-card speed-slider-group">
+              <label htmlFor="speed-slider" className="speed-label">
+                Animation Speed: <span className="speed-value">{animationSpeed}ms</span>
+              </label>
+              <input
+                id="speed-slider"
+                type="range"
+                min="100"
+                max="1000"
+                step="50"
+                value={animationSpeed}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setAnimationSpeed(val);
+                  animationSpeedRef.current = val;
+                }}
+                className="speed-slider"
+                aria-label="Animation playback speed"
+              />
+            </div>
+
+            {/* 4. Secondary & Utility Actions (Solve, Clear, Scramble, Reset) */}
+            <div className="sidebar-card secondary-actions">
+              <button
+                type="button"
+                className="solve-btn"
+                onClick={handleVerifyAndSolve}
+                disabled={isSolving || isAnimating}
+                title="Verify parity and solve the cube with auto-playback"
+              >
+                {isSolving ? 'Solving...' : '✨ Verify & Solve'}
+              </button>
+              {isEditMode && (
+                <button
+                  type="button"
+                  className="secondary-btn btn-danger"
+                  onClick={handleClearCube}
+                  disabled={isSolving || isAnimating}
+                  title="Clear all 54 tiles to blank unpainted canvas"
+                >
+                  Clear Cube
+                </button>
+              )}
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={handleScramble}
+                disabled={isSolving || isAnimating || isEditMode}
+              >
+                Scramble (20 moves)
+              </button>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={handleReset}
+              >
+                Reset
+              </button>
+            </div>
+
+            {/* 5. 2D Painting & Net Visualizer (with Mode Switcher) */}
+            <div className="sidebar-card net-and-palette-card">
+              <div className="mode-toggle-section">
+                <button
+                  type="button"
+                  className={`mode-toggle-btn ${isEditMode ? 'mode-edit-active' : ''}`}
+                  onClick={() => setIsEditMode((prev) => !prev)}
+                  disabled={isSolving || isAnimating}
+                  title="Toggle between Scramble/Play mode and Input/Edit mode"
+                >
+                  {isEditMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
+                </button>
+              </div>
+
+              {/* Interactive Color Palette (Paint Brush) */}
+              <div className="palette-section" aria-label="Color Palette">
+                <span className="palette-heading">
+                  {isEditMode
+                    ? `Active Brush: ${PALETTE_SWATCHES.find((s) => s.key === activeBrush)?.name || activeBrush}`
+                    : 'Color Palette'}
+                </span>
+                <div className="palette-swatches">
+                  {PALETTE_SWATCHES.map((swatch) => {
+                    const isActive = activeBrush === swatch.key;
+                    const currentCount = colorCounts[swatch.key] || 0;
                     return (
                       <button
-                        key={idx}
+                        key={swatch.key}
                         type="button"
-                        className={`cube-tile ${
-                          isCenter
-                            ? 'tile-locked'
-                            : isEditMode
-                            ? 'cube-tile-paintable'
-                            : ''
-                        } ${letter === 'X' ? 'tile-blank' : ''}`}
-                        style={{
-                          backgroundColor: TILE_COLORS[letter] || '#222226',
-                        }}
-                        onClick={() => handleTileClick(tileIndex)}
-                        title={
-                          isCenter
-                            ? `${face.name} Center [Locked]`
-                            : `${face.name} [${idx}]: ${letter === 'X' ? 'Blank' : letter}${
-                                isEditMode ? ` (Click to paint ${activeBrush})` : ''
-                              }`
-                        }
-                        aria-label={`${face.name} tile ${idx + 1}, color ${letter}${isCenter ? ' (locked center)' : ''}`}
-                        disabled={isCenter && isEditMode}
+                        className={`palette-swatch ${isActive ? 'active-brush' : ''}`}
+                        style={{ '--swatch-color': swatch.color }}
+                        onClick={() => setActiveBrush(swatch.key)}
+                        title={`Select ${swatch.name} (${swatch.key}) Brush [Key: ${swatch.shortcut}]`}
                       >
-                        {letter === 'X' && <span className="tile-blank-label">?</span>}
+                        <span
+                          className="swatch-indicator"
+                          style={{ backgroundColor: swatch.color, color: swatch.color }}
+                        />
+                        <span>{swatch.name} ({swatch.key})</span>
+                        {isEditMode && <kbd className="palette-key-hint">{swatch.shortcut}</kbd>}
+                        <span
+                          className={`swatch-counter ${
+                            currentCount === 9
+                              ? 'count-complete'
+                              : currentCount > 9
+                              ? 'count-overflow'
+                              : ''
+                          }`}
+                          title={`${currentCount} of 9 ${swatch.name} stickers placed`}
+                        >
+                          ({currentCount} / 9)
+                        </span>
                       </button>
                     );
                   })}
                 </div>
+                <p className="edit-instructions">
+                  {isEditMode
+                    ? 'Select a color swatch above (Keys: 1-6), then click any tile on the 2D Net below to paint it.'
+                    : 'Toggle "Enter Edit Mode" to paint custom colors onto the 2D Net.'}
+                </p>
               </div>
-            );
-          })}
-        </div>
-      </main>
 
-      {/* Dynamic Validation Status Badge */}
-      <section className="validation-section" aria-label="Cube Physical State Validation">
-        {validation.isValid ? (
-          <div className="validation-badge badge-valid">
-            <span className="badge-icon" aria-hidden="true">✓</span>
-            <span>Valid Cube State</span>
-          </div>
-        ) : (
-          <div
-            className="validation-badge badge-invalid"
-            title={validation.errors.join('\n')}
-          >
-            <span className="badge-icon" aria-hidden="true">✕</span>
-            <span>{validation.errors[0]}</span>
-            {validation.errors.length > 1 && (
-              <span className="badge-extra">
-                (+{validation.errors.length - 1} more)
+              {/* Centered 2D Cross Net */}
+              <div className="grid-container">
+                <div className="cube-cross-net" aria-label="Flattened Rubik's Cube Net">
+                  {CUBE_FACES.map((face) => {
+                    const stickers = stateString
+                      .slice(face.startIndex, face.startIndex + 9)
+                      .split('');
+
+                    return (
+                      <div
+                        key={face.key}
+                        className="face-wrapper"
+                        style={{ gridArea: face.area }}
+                      >
+                        <span className="face-name">{face.name} ({face.key})</span>
+                        <div className="face-grid">
+                          {stickers.map((letter, idx) => {
+                            const tileIndex = face.startIndex + idx;
+                            const isCenter = LOCKED_CENTER_INDICES.has(tileIndex);
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                className={`cube-tile ${
+                                  isCenter
+                                    ? 'tile-locked'
+                                    : isEditMode
+                                    ? 'cube-tile-paintable'
+                                    : ''
+                                } ${letter === 'X' ? 'tile-blank' : ''}`}
+                                style={{
+                                  backgroundColor: TILE_COLORS[letter] || '#222226',
+                                }}
+                                onClick={() => handleTileClick(tileIndex)}
+                                title={
+                                  isCenter
+                                    ? `${face.name} Center [Locked]`
+                                    : `${face.name} [${idx}]: ${letter === 'X' ? 'Blank' : letter}${
+                                        isEditMode ? ` (Click to paint ${activeBrush})` : ''
+                                      }`
+                                }
+                                aria-label={`${face.name} tile ${idx + 1}, color ${letter}${isCenter ? ' (locked center)' : ''}`}
+                                disabled={isCenter && isEditMode}
+                              >
+                                {letter === 'X' && <span className="tile-blank-label">?</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* 6. Controls: Clockwise & Counter-Clockwise Turns */}
+            <div className="sidebar-card controls-container" aria-label="Manual Rotation Controls">
+              {/* Clockwise Turns */}
+              <span className="controls-heading">
+                Clockwise Turns <span className="keyboard-hint-tag">Keys: U, R, F, D, L, B</span>
               </span>
-            )}
-          </div>
-        )}
-      </section>
+              <div className="buttons-group">
+                {MOVE_BUTTONS.map((btn) => (
+                  <button
+                    key={btn.key}
+                    type="button"
+                    className="control-btn"
+                    onClick={() => handleTurn(btn.key)}
+                    disabled={isSolving || isEditMode || isAnimating}
+                    title={`Turn ${btn.name} Face Clockwise (${btn.label}) [Key: ${btn.shortcut}]`}
+                  >
+                    <span
+                      className="color-indicator"
+                      style={{ backgroundColor: btn.color }}
+                    />
+                    <span>{btn.label}</span>
+                    <kbd className="key-hint">{btn.shortcut}</kbd>
+                  </button>
+                ))}
+              </div>
 
-      {/* Controls: Clockwise & Counter-Clockwise Turns */}
-      <section className="controls-container" aria-label="Controls">
-        {/* Clockwise Turns */}
-        <span className="controls-heading">
-          Clockwise Turns <span className="keyboard-hint-tag">Keys: U, R, F, D, L, B</span>
-        </span>
-        <div className="buttons-group">
-          {MOVE_BUTTONS.map((btn) => (
-            <button
-              key={btn.key}
-              type="button"
-              className="control-btn"
-              onClick={() => handleTurn(btn.key)}
-              disabled={isSolving || isEditMode}
-              title={`Turn ${btn.name} Face Clockwise (${btn.label}) [Key: ${btn.shortcut}]`}
-            >
-              <span
-                className="color-indicator"
-                style={{ backgroundColor: btn.color }}
-              />
-              <span>{btn.label}</span>
-              <kbd className="key-hint">{btn.shortcut}</kbd>
-            </button>
-          ))}
-        </div>
+              {/* Counter-Clockwise Turns */}
+              <span className="controls-heading">
+                Counter-Clockwise Turns <span className="keyboard-hint-tag">Keys: Shift + Face</span>
+              </span>
+              <div className="buttons-group">
+                {PRIME_MOVE_BUTTONS.map((btn) => (
+                  <button
+                    key={btn.key}
+                    type="button"
+                    className="control-btn"
+                    onClick={() => handleTurn(btn.key)}
+                    disabled={isSolving || isEditMode || isAnimating}
+                    title={`Turn ${btn.name} Face Counter-Clockwise (${btn.label}) [Key: ${btn.shortcut}]`}
+                  >
+                    <span
+                      className="color-indicator"
+                      style={{ backgroundColor: btn.color }}
+                    />
+                    <span>{btn.label}</span>
+                    <kbd className="key-hint">{btn.shortcut}</kbd>
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        {/* Counter-Clockwise Turns */}
-        <span className="controls-heading">
-          Counter-Clockwise Turns <span className="keyboard-hint-tag">Keys: Shift + Face</span>
-        </span>
-        <div className="buttons-group">
-          {PRIME_MOVE_BUTTONS.map((btn) => (
-            <button
-              key={btn.key}
-              type="button"
-              className="control-btn"
-              onClick={() => handleTurn(btn.key)}
-              disabled={isSolving || isEditMode}
-              title={`Turn ${btn.name} Face Counter-Clockwise (${btn.label}) [Key: ${btn.shortcut}]`}
-            >
-              <span
-                className="color-indicator"
-                style={{ backgroundColor: btn.color }}
-              />
-              <span>{btn.label}</span>
-              <kbd className="key-hint">{btn.shortcut}</kbd>
-            </button>
-          ))}
-        </div>
+            {/* 7. Dynamic Validation & State String Inspector */}
+            <div className="sidebar-card validation-and-state-card">
+              <div className="validation-section" aria-label="Cube Physical State Validation">
+                {validation.isValid ? (
+                  <div className="validation-badge badge-valid">
+                    <span className="badge-icon" aria-hidden="true">✓</span>
+                    <span>Valid Cube State</span>
+                  </div>
+                ) : (
+                  <div
+                    className="validation-badge badge-invalid"
+                    title={validation.errors.join('\n')}
+                  >
+                    <span className="badge-icon" aria-hidden="true">✕</span>
+                    <span>{validation.errors[0]}</span>
+                    {validation.errors.length > 1 && (
+                      <span className="badge-extra">
+                        (+{validation.errors.length - 1} more)
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
 
-        {/* Speed Slider for Animation Playback */}
-        <div className="speed-slider-group">
-          <label htmlFor="speed-slider" className="speed-label">
-            Animation Speed: <span className="speed-value">{animationSpeed}ms</span>
-          </label>
-          <input
-            id="speed-slider"
-            type="range"
-            min="100"
-            max="1000"
-            step="50"
-            value={animationSpeed}
-            onChange={(e) => {
-              const val = Number(e.target.value);
-              setAnimationSpeed(val);
-              animationSpeedRef.current = val;
-            }}
-            className="speed-slider"
-            aria-label="Animation playback speed"
-          />
-        </div>
-
-        {/* Secondary Utility Controls */}
-        <div className="secondary-actions">
-          <button
-            type="button"
-            className="solve-btn"
-            onClick={handleVerifyAndSolve}
-            disabled={isSolving}
-            title="Verify parity and solve the cube with auto-playback"
-          >
-            {isSolving ? 'Solving...' : '✨ Verify & Solve'}
-          </button>
-          {isEditMode && (
-            <button
-              type="button"
-              className="secondary-btn btn-danger"
-              onClick={handleClearCube}
-              disabled={isSolving}
-              title="Clear all 54 tiles to blank unpainted canvas"
-            >
-              Clear Cube
-            </button>
-          )}
-          <button
-            type="button"
-            className="secondary-btn"
-            onClick={handleScramble}
-            disabled={isSolving}
-          >
-            Scramble (20 moves)
-          </button>
-          <button
-            type="button"
-            className="secondary-btn"
-            onClick={handleReset}
-          >
-            Reset
-          </button>
-        </div>
-      </section>
-
-      {/* State String Inspector */}
-      <section className="state-container" aria-label="State String">
-        <div className="state-meta">
-          <span>54-Character Cube State</span>
-          <span>Moves applied: {moveCount}</span>
-        </div>
-        <div className="state-code">{stateString}</div>
-      </section>
+              <div className="state-container" aria-label="State String">
+                <div className="state-meta">
+                  <span>54-Character Cube State</span>
+                  <span>Moves applied: {moveCount}</span>
+                </div>
+                <div className="state-code">{stateString}</div>
+              </div>
+            </div>
+          </aside>
+        </main>
+      )}
     </div>
   );
 }

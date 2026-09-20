@@ -60,22 +60,30 @@ export function getInverseMove(move) {
 }
 
 /**
- * Purely maps a standard move notation (e.g. "U", "R'", "F2") to the corresponding CubeEngine methods.
+ * Purely maps a move notation (e.g. "U", "R'", "F2", "d", "dprime", "r", "M") to the corresponding CubeEngine methods.
  * Returns a NEW CubeEngine instance without mutating the incoming instance.
- * For wide moves (e.g. "r", "d", "b") or slice moves, uses RubiksCube to accurately update state.
+ * Supports:
+ * - Standard uppercase face turns: U, R, F, D, L, B
+ * - Lowercase 2-layer wide turns: u, r, f, d, l, b
+ * - Slice moves: M, E, S
+ * - Primes (' or prime) and Double turns (2)
+ *
  * @param {CubeEngine} currentCube
  * @param {string} move
  * @returns {CubeEngine}
  */
 export function applyMove(currentCube, move) {
-  if (!move) return currentCube;
-  const isPrime = move.includes("'") || move.toLowerCase().includes('prime');
-  const isDouble = move.includes('2');
-  const baseLetter = move[0]?.toUpperCase();
-  const isStandardFace = ['U', 'R', 'F', 'D', 'L', 'B'].includes(baseLetter);
+  if (!move || !currentCube) return currentCube;
+  const trimmed = move.trim();
+  if (!trimmed) return currentCube;
 
-  if (isStandardFace) {
-    const methodName = isPrime ? `turn${baseLetter}Prime` : `turn${baseLetter}`;
+  const isPrime = trimmed.includes("'") || trimmed.toLowerCase().includes('prime');
+  const isDouble = trimmed.includes('2');
+  const firstChar = trimmed[0];
+
+  // 1. Standard uppercase face turns: U, R, F, D, L, B
+  if (['U', 'R', 'F', 'D', 'L', 'B'].includes(firstChar)) {
+    const methodName = isPrime ? `turn${firstChar}Prime` : `turn${firstChar}`;
     let next = typeof currentCube[methodName] === 'function' ? currentCube[methodName]() : currentCube;
     if (!(next instanceof CubeEngine)) {
       next = new CubeEngine(next?.state || next);
@@ -87,14 +95,57 @@ export function applyMove(currentCube, move) {
       }
     }
     return next;
-  } else {
-    try {
-      const solverStr = toSolverFormat(currentCube.state);
-      const rc = new RubiksCube(solverStr);
-      rc.move(move);
-      return new CubeEngine(fromSolverFormat(rc.toString()));
-    } catch {
-      return currentCube;
+  }
+
+  // 2. Lowercase 2-layer wide turns: u, r, f, d, l, b
+  if (['u', 'r', 'f', 'd', 'l', 'b'].includes(firstChar)) {
+    const methodName = isPrime ? `turn${firstChar}Prime` : `turn${firstChar}`;
+    let next = typeof currentCube[methodName] === 'function' ? currentCube[methodName]() : null;
+    if (next) {
+      if (!(next instanceof CubeEngine)) {
+        next = new CubeEngine(next?.state || next);
+      }
+      if (isDouble) {
+        next = typeof next[methodName] === 'function' ? next[methodName]() : next;
+        if (!(next instanceof CubeEngine)) {
+          next = new CubeEngine(next?.state || next);
+        }
+      }
+      return next;
     }
   }
+
+  // 3. Slice moves: M, E, S
+  const upperChar = firstChar.toUpperCase();
+  if (['M', 'E', 'S'].includes(upperChar)) {
+    const methodName = isPrime ? `turn${upperChar}Prime` : `turn${upperChar}`;
+    let next = typeof currentCube[methodName] === 'function' ? currentCube[methodName]() : null;
+    if (next) {
+      if (!(next instanceof CubeEngine)) {
+        next = new CubeEngine(next?.state || next);
+      }
+      if (isDouble) {
+        next = typeof next[methodName] === 'function' ? next[methodName]() : next;
+        if (!(next instanceof CubeEngine)) {
+          next = new CubeEngine(next?.state || next);
+        }
+      }
+      return next;
+    }
+  }
+
+  // 4. Universal solver RubiksCube fallback
+  try {
+    const solverStr = toSolverFormat(currentCube.state);
+    const rc = new RubiksCube(solverStr);
+    rc.move(trimmed);
+    const resState = fromSolverFormat(rc.toString());
+    if (resState && resState.length === 54 && resState !== currentCube.state) {
+      return new CubeEngine(resState);
+    }
+  } catch (err) {
+    console.error(`applyMove: unrecognized move "${move}":`, err);
+  }
+
+  return currentCube;
 }
