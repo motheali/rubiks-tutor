@@ -114,6 +114,141 @@ export const STANDARD_COLOR_HEX = {
 };
 
 /**
+ * Guided scan sequence for all 6 faces in standard Rubik's cube string order:
+ * U (Up), R (Right), F (Front), D (Down), L (Left), B (Back)
+ */
+export const SCAN_SEQUENCE = [
+  {
+    step: 0,
+    face: 'U',
+    name: 'Up',
+    colorName: 'White',
+    centerIndex: 4,
+    instruction: 'Scan the TOP face (usually White center).',
+    orientationCue: 'Hold Green front facing you, White on top.',
+  },
+  {
+    step: 1,
+    face: 'R',
+    name: 'Right',
+    colorName: 'Red',
+    centerIndex: 13,
+    instruction: 'Scan the RIGHT face (usually Red center).',
+    orientationCue: 'Keep White on top, turn cube to show Red.',
+  },
+  {
+    step: 2,
+    face: 'F',
+    name: 'Front',
+    colorName: 'Green',
+    centerIndex: 22,
+    instruction: 'Scan the FRONT face (usually Green center).',
+    orientationCue: 'Keep White on top, turn cube to show Green.',
+  },
+  {
+    step: 3,
+    face: 'D',
+    name: 'Down',
+    colorName: 'Yellow',
+    centerIndex: 31,
+    instruction: 'Scan the BOTTOM face (usually Yellow center).',
+    orientationCue: 'Turn cube upside down, Green facing you.',
+  },
+  {
+    step: 4,
+    face: 'L',
+    name: 'Left',
+    colorName: 'Orange',
+    centerIndex: 40,
+    instruction: 'Scan the LEFT face (usually Orange center).',
+    orientationCue: 'Keep White on top, turn cube to show Orange.',
+  },
+  {
+    step: 5,
+    face: 'B',
+    name: 'Back',
+    colorName: 'Blue',
+    centerIndex: 49,
+    instruction: 'Scan the BACK face (usually Blue center).',
+    orientationCue: 'Keep White on top, turn cube to show Blue.',
+  },
+];
+
+/**
+ * Validates the flattened 54-sticker cube state scanned from all 6 faces.
+ * A physically valid Rubik's cube MUST have exactly 9 occurrences of each of the 6 colors.
+ *
+ * @param {Array<Array<string|Object>>} scannedFaces - Array of 6 faces, each containing 9 colors
+ * @returns {{
+ *   isValid: boolean,
+ *   counts: Record<string, number>,
+ *   stateString: string,
+ *   error: string | null
+ * }}
+ */
+export function validateFullCubeScan(scannedFaces) {
+  if (!scannedFaces || scannedFaces.length !== 6) {
+    return {
+      isValid: false,
+      counts: {},
+      stateString: '',
+      error: 'Incomplete scan: All 6 faces must be scanned before validation.',
+    };
+  }
+
+  const flattenedKeys = [];
+
+  for (let step = 0; step < 6; step++) {
+    const face = scannedFaces[step];
+    if (!face || face.length !== 9) {
+      return {
+        isValid: false,
+        counts: {},
+        stateString: '',
+        error: `Face ${step + 1} (${SCAN_SEQUENCE[step]?.name || step}) is incomplete.`,
+      };
+    }
+
+    for (let i = 0; i < 9; i++) {
+      const item = face[i];
+      const colorVal =
+        typeof item === 'object' && item !== null
+          ? item.matchedColor || item.key || item.matchedKey
+          : item;
+      const key = COLOR_NAME_TO_KEY[colorVal] || colorVal;
+      flattenedKeys.push(key);
+    }
+  }
+
+  const counts = { U: 0, R: 0, F: 0, D: 0, L: 0, B: 0 };
+  for (const key of flattenedKeys) {
+    if (counts[key] !== undefined) {
+      counts[key]++;
+    }
+  }
+
+  const expectedFaces = ['U', 'R', 'F', 'D', 'L', 'B'];
+  const isCountValid = expectedFaces.every((f) => counts[f] === 9);
+  const stateString = flattenedKeys.join('');
+
+  if (!isCountValid) {
+    return {
+      isValid: false,
+      counts,
+      stateString,
+      error: 'Invalid cube state detected. The lighting may have skewed a color. Please review and rescan.',
+    };
+  }
+
+  return {
+    isValid: true,
+    counts,
+    stateString,
+    error: null,
+  };
+}
+
+/**
  * Calculates the closest standard Rubik's Cube color using calibrated HSL heuristics.
  *
  * 1. Broaden the White Net: If the averaged Saturation is < 35 OR the averaged Lightness is > 70,

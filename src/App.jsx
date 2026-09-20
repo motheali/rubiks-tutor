@@ -5,6 +5,9 @@ import { Cube as CubeEngine, SOLVED_STATE } from './CubeEngine';
 import { validateCubeState } from './CubeValidator';
 import Cube3D from './components/Cube3D';
 import CameraScanner from './components/CameraScanner';
+import PracticeMode from './components/PracticeMode';
+import { ALGORITHM_LIBRARY } from './data/algorithms';
+import { applyScramble } from './components/practiceUtils';
 import { COLOR_NAME_TO_KEY } from './components/cameraScannerMath';
 import { getInverseMove, applyMove, toSolverFormat } from './tutorUtils';
 import './App.css';
@@ -97,7 +100,9 @@ export default function App() {
 
   // Application Mode: 'learn' (default) or 'practice'
   const [appMode, setAppMode] = useState('learn');
-  // Selected Training Case for Learn Mode
+  // Algorithm Library Selection States
+  const [selectedMethod, setSelectedMethod] = useState('');
+  const [selectedPhase, setSelectedPhase] = useState('');
   const [selectedCase, setSelectedCase] = useState('');
   // Camera Scanner modal display state
   const [showCameraScanner, setShowCameraScanner] = useState(false);
@@ -128,8 +133,13 @@ export default function App() {
   const solveSequenceRef = useRef([]);
   const currentStepIndexRef = useRef(0);
   const cubeRef = useRef(cube);
+  const appModeRef = useRef(appMode);
 
   // Keep refs synchronized with React state
+  useEffect(() => {
+    appModeRef.current = appMode;
+  }, [appMode]);
+
   useEffect(() => {
     cubeRef.current = cube;
   }, [cube]);
@@ -380,7 +390,12 @@ export default function App() {
         return;
       }
 
-      // 3. Color Palette Keyboard Shortcuts (1-6) - active only in Edit Mode
+      // 3. Practice Mode Trap: let PracticeMode handle spacebar and esc exclusively
+      if (appModeRef.current === 'practice') {
+        return;
+      }
+
+      // 4. Color Palette Keyboard Shortcuts (1-6) - active only in Edit Mode
       if (isEditModeRef.current) {
         const NUM_TO_KEY = {
           '1': 'U',
@@ -546,6 +561,87 @@ export default function App() {
     setShowCameraScanner(false);
   }, []);
 
+  // Apply full 54-sticker scanned cube state to the 3D model
+  const handleApplyFullCube = useCallback((scannedFaces, stateString) => {
+    let finalState = stateString;
+
+    if (!finalState && Array.isArray(scannedFaces)) {
+      const chars = [];
+      for (const face of scannedFaces) {
+        if (Array.isArray(face)) {
+          for (const item of face) {
+            const val =
+              typeof item === 'object' && item !== null
+                ? item.matchedKey || item.key || item.matchedColor
+                : item;
+            const key = COLOR_NAME_TO_KEY[val] || val;
+            chars.push(key);
+          }
+        }
+      }
+      finalState = chars.join('');
+    }
+
+    if (!finalState || finalState.length !== 54) {
+      console.error('handleApplyFullCube: Invalid state length', finalState);
+      return;
+    }
+
+    const updatedCube = new CubeEngine(finalState);
+    cubeRef.current = updatedCube;
+    setCube(updatedCube);
+
+    // Reset solver sequence states
+    setSolveSequence([]);
+    solveSequenceRef.current = [];
+    setCurrentStepIndex(0);
+    currentStepIndexRef.current = 0;
+    setSolverStatus('');
+    setSolverError('');
+
+    // Close camera scanner modal
+    setShowCameraScanner(false);
+  }, []);
+
+  // Algorithm Library: Load specific training case setup onto 3D cube and sequence into tutor steps
+  const handleSelectAlgorithmCase = useCallback(
+    (caseObj) => {
+      if (!caseObj) return;
+
+      // 1. Halt any ongoing auto-solver loop and cancel in-flight cinematic animations
+      haltAutoSolver();
+      cancelInFlightAnimation();
+
+      // 2. Instantly reset Cube3D state to a solved cube
+      const solvedCube = new CubeEngine(SOLVED_STATE);
+
+      // 3. Instantly execute the setup sequence on the 3D model (bypassing animation)
+      let targetCube = solvedCube;
+      if (caseObj.setup) {
+        targetCube = applyScramble(caseObj.setup, solvedCube);
+      }
+
+      cubeRef.current = targetCube;
+      setCube(targetCube);
+      setMoveCount(0);
+
+      // 4. Load the algorithm string into the existing step-by-step sequence state
+      const moves = (caseObj.algorithm || '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+
+      setSolveSequence(moves);
+      solveSequenceRef.current = moves;
+      setCurrentStepIndex(0);
+      currentStepIndexRef.current = 0;
+      setSolverStatus(`Training: ${caseObj.name} (${moves.length} moves)`);
+      setSolverError('');
+      setSelectedCase(caseObj.id || caseObj.name);
+    },
+    [haltAutoSolver, cancelInFlightAnimation]
+  );
+
   // Random 20-move scramble including clockwise and prime turns
   const handleScramble = () => {
     if (isSolvingRef.current || isAnimatingRef.current || isEditModeRef.current) return;
@@ -684,6 +780,12 @@ export default function App() {
     }
   };
 
+  // Algorithm Library cascading selections derived data
+  const currentMethod = selectedMethod ? ALGORITHM_LIBRARY[selectedMethod] : null;
+  const currentMethodPhases = currentMethod ? currentMethod.phases || currentMethod : null;
+  const currentPhase = currentMethodPhases && selectedPhase ? currentMethodPhases[selectedPhase] : null;
+  const currentPhaseCases = currentPhase ? currentPhase.cases || [] : [];
+
   return (
     <div className="app-container">
       {/* Top Navigation Bar with Mode Selector */}
@@ -735,29 +837,15 @@ export default function App() {
             <CameraScanner
               onClose={() => setShowCameraScanner(false)}
               onApplyFace={handleApplyFace}
+              onApplyFullCube={handleApplyFullCube}
             />
           </div>
         </div>
       )}
 
-      {/* Main Content Area: Learn Mode (Split-Screen) vs Practice Mode (Placeholder) */}
+      {/* Main Content Area: Learn Mode (Split-Screen) vs Practice Mode (Speedcubing Arena) */}
       {appMode === 'practice' ? (
-        <main className="practice-placeholder-container">
-          <div className="practice-placeholder-card">
-            <div className="practice-icon" aria-hidden="true">⏱️</div>
-            <h2 className="practice-title">Practice Mode Coming Soon</h2>
-            <p className="practice-desc">
-              Speedcubing timer, WCA inspection countdown, scramble generator, and session statistics will be available here.
-            </p>
-            <button
-              type="button"
-              className="primary-return-btn"
-              onClick={() => setAppMode('learn')}
-            >
-              Return to Learn Mode
-            </button>
-          </div>
-        </main>
+        <PracticeMode />
       ) : (
         <main className="learn-split-layout">
           {/* Left Viewport (approx. 60-70% width): 3D Rubik's Cube Canvas */}
@@ -781,23 +869,109 @@ export default function App() {
 
           {/* Right Control Panel (approx. 30-40% width): Scrollable Sidebar Panel */}
           <aside className="learn-sidebar-right" aria-label="Tutor Control Panel">
-            {/* 1. Training Case Selector */}
-            <div className="sidebar-card training-case-card">
-              <label htmlFor="training-case-select" className="sidebar-card-title">
-                🎯 Select Training Case
-              </label>
-              <select
-                id="training-case-select"
-                className="training-case-dropdown"
-                value={selectedCase}
-                onChange={(e) => setSelectedCase(e.target.value)}
-              >
-                <option value="">-- Choose an Algorithm Set --</option>
-                <option value="beginner-cross">Beginner Cross</option>
-                <option value="f2l">F2L Insertions (First Two Layers)</option>
-                <option value="oll">OLL (Orient Last Layer)</option>
-                <option value="pll">PLL (Permute Last Layer)</option>
-              </select>
+            {/* 1. Algorithm Library Cascading Selector */}
+            <div className="sidebar-card training-case-card algorithm-library-card">
+              <div className="algorithm-card-header">
+                <label htmlFor="algorithm-method-select" className="sidebar-card-title">
+                  🎯 Algorithm Library
+                </label>
+                {(selectedMethod || selectedPhase) && (
+                  <button
+                    type="button"
+                    className="clear-alg-btn"
+                    onClick={() => {
+                      setSelectedMethod('');
+                      setSelectedPhase('');
+                      setSelectedCase('');
+                    }}
+                    title="Reset algorithm library selection"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              <div className="cascading-selects-row">
+                {/* Dropdown 1: Select Method (auto-populated from top level of ALGORITHM_LIBRARY) */}
+                <div className="select-field">
+                  <label htmlFor="algorithm-method-select" className="select-field-label">
+                    Method:
+                  </label>
+                  <select
+                    id="algorithm-method-select"
+                    className="training-case-dropdown algorithm-select"
+                    value={selectedMethod}
+                    onChange={(e) => {
+                      setSelectedMethod(e.target.value);
+                      setSelectedPhase('');
+                      setSelectedCase('');
+                    }}
+                  >
+                    <option value="">-- Select Method --</option>
+                    {Object.entries(ALGORITHM_LIBRARY).map(([key, method]) => (
+                      <option key={key} value={key}>
+                        {method.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Dropdown 2: Select Phase (only renders if a Method is selected) */}
+                {selectedMethod && currentMethodPhases && (
+                  <div className="select-field">
+                    <label htmlFor="algorithm-phase-select" className="select-field-label">
+                      Phase:
+                    </label>
+                    <select
+                      id="algorithm-phase-select"
+                      className="training-case-dropdown algorithm-select"
+                      value={selectedPhase}
+                      onChange={(e) => {
+                        setSelectedPhase(e.target.value);
+                        setSelectedCase('');
+                      }}
+                    >
+                      <option value="">-- Select Phase --</option>
+                      {Object.entries(currentMethodPhases).map(([pKey, phase]) => (
+                        <option key={pKey} value={pKey}>
+                          {phase.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Grid/List: Render all available Cases for the selected Phase as clickable buttons */}
+              {selectedPhase && currentPhaseCases.length > 0 && (
+                <div className="algorithm-cases-container">
+                  <span className="cases-list-heading">
+                    Available Cases ({currentPhaseCases.length}):
+                  </span>
+                  <div className="algorithm-cases-grid">
+                    {currentPhaseCases.map((caseObj) => {
+                      const isSelected = selectedCase === caseObj.id || selectedCase === caseObj.name;
+                      return (
+                        <button
+                          key={caseObj.id || caseObj.name}
+                          type="button"
+                          className={`algorithm-case-btn ${isSelected ? 'case-btn-active' : ''}`}
+                          onClick={() => handleSelectAlgorithmCase(caseObj)}
+                          title={`${caseObj.name}\n${caseObj.description || ''}\nAlgorithm: ${caseObj.algorithm}`}
+                        >
+                          <div className="case-btn-header">
+                            <span className="case-btn-name">{caseObj.name}</span>
+                            {isSelected && <span className="case-btn-check">✓</span>}
+                          </div>
+                          <span className="case-btn-meta">
+                            {caseObj.algorithm.trim().split(/\s+/).length} moves
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 2. Solution Sequence & Step-by-Step Navigation Bar */}

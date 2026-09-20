@@ -5,19 +5,33 @@ import {
   COLOR_NAME_TO_KEY,
   COLOR_KEY_TO_NAME,
   STANDARD_COLOR_HEX,
+  SCAN_SEQUENCE,
+  validateFullCubeScan,
 } from './cameraScannerMath';
 
-export default function CameraScanner({ onClose, onScan, onApplyFace, defaultFace = 'F' }) {
+export default function CameraScanner({
+  onClose,
+  onScan,
+  onApplyFace,
+  onApplyFullCube,
+}) {
   // 1. State & Refs Setup
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const overlayRef = useRef(null);
 
   const [hasPermission, setHasPermission] = useState(null);
-  const [scanResult, setScanResult] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [selectedFace, setSelectedFace] = useState(defaultFace);
+
+  // 6-Face Wizard State Machine
+  const [currentScanStep, setCurrentScanStep] = useState(0); // 0 (U) to 5 (B)
+  const [scannedFaces, setScannedFaces] = useState(() => Array(6).fill(null));
+  const [lastScannedColors, setLastScannedColors] = useState(null);
+  const [validationError, setValidationError] = useState(null);
+  const [validationCounts, setValidationCounts] = useState(null);
+
+  const currentFace = SCAN_SEQUENCE[currentScanStep] || SCAN_SEQUENCE[0];
 
   // 2. Camera Lifecycle & Permissions (useEffect)
   useEffect(() => {
@@ -88,8 +102,8 @@ export default function CameraScanner({ onClose, onScan, onApplyFace, defaultFac
     };
   }, []);
 
-  // 4. The Canvas Capture Math (captureFace function)
-  const captureFace = useCallback(() => {
+  // 3. Capture Logic Update: 5x5 Pixel Averaging + Step Progression + Strict Validation
+  const captureCurrentFace = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     const overlay = overlayRef.current;
@@ -131,18 +145,15 @@ export default function CameraScanner({ onClose, onScan, onApplyFace, defaultFac
       videoHeight,
     });
 
-    // Run loop 9 times using a 5x5 pixel block (anti-glare averaging)
-    // and map averaged RGB through calibrated HSL getClosestColor
+    // Run loop 9 times using 5x5 pixel block averaging and calibrated HSL matching
     const extractedColors = [];
     for (let i = 0; i < centerPixels.length; i++) {
       const { x, y } = centerPixels[i];
 
-      // Extract a 5x5 pixel block ctx.getImageData(canvasX - 2, canvasY - 2, 5, 5).data
       const startX = Math.max(0, Math.min(canvas.width - 5, x - 2));
       const startY = Math.max(0, Math.min(canvas.height - 5, y - 2));
       const blockData = context.getImageData(startX, startY, 5, 5).data;
 
-      // Loop through the 25 pixels, average out R, G, and B values
       let sumR = 0;
       let sumG = 0;
       let sumB = 0;
@@ -175,46 +186,89 @@ export default function CameraScanner({ onClose, onScan, onApplyFace, defaultFac
       });
     }
 
-    // Save these 9 RGB arrays and matched colors into state and log them
-    setScanResult(extractedColors);
-    console.log('CameraScanner: Captured & Matched 9 Standard Face Colors:', extractedColors);
+    setLastScannedColors(extractedColors);
+    const matchedNamesArray = extractedColors.map((c) => c.matchedColor);
 
-    // Auto-detect target face from the scanned center tile (index 4)
-    if (extractedColors[4]?.matchedKey) {
-      setSelectedFace(extractedColors[4].matchedKey);
-    }
+    // Save to scannedFaces[currentScanStep]
+    const nextScannedFaces = [...scannedFaces];
+    nextScannedFaces[currentScanStep] = matchedNamesArray;
+    setScannedFaces(nextScannedFaces);
 
     if (onScan) {
-      onScan(extractedColors);
-    }
-  }, [onScan]);
-
-  // Apply matched face colors to the 3D cube state and unmount scanner
-  const handleApplyFace = useCallback(() => {
-    if (!scanResult || scanResult.length !== 9) return;
-
-    // Send array of 9 matched color names/keys to the parent handler
-    const matchedColorsArray = scanResult.map((c) => c.matchedColor);
-
-    if (onApplyFace) {
-      onApplyFace(matchedColorsArray, selectedFace);
+      onScan(extractedColors, currentFace.face);
     }
 
-    if (onClose) {
-      onClose();
+    // Step Progression or Final Validation
+    if (currentScanStep < 5) {
+      setCurrentScanStep((step) => step + 1);
+      setValidationError(null);
+      setValidationCounts(null);
+    } else {
+      // 4. Strict State Validation on 6th (Final) Face
+      const validation = validateFullCubeScan(nextScannedFaces);
+
+      if (!validation.isValid) {
+        setValidationError(
+          validation.error ||
+            'Invalid cube state detected. The lighting may have skewed a color. Please review and rescan.'
+        );
+        setValidationCounts(validation.counts);
+      } else {
+        setValidationError(null);
+        setValidationCounts(validation.counts);
+
+        // Notify parent with full cube scan state
+        if (onApplyFullCube) {
+          onApplyFullCube(nextScannedFaces, validation.stateString);
+        } else if (onApplyFace) {
+          // Fallback if parent only provided single-face handler
+          onApplyFace(matchedNamesArray, currentFace.face);
+        }
+
+        if (onClose) {
+          onClose();
+        }
+      }
     }
-  }, [scanResult, selectedFace, onApplyFace, onClose]);
+  }, [
+    scannedFaces,
+    currentScanStep,
+    currentFace,
+    onScan,
+    onApplyFullCube,
+    onApplyFace,
+    onClose,
+  ]);
+
+  // Step backward to previous face
+  const handleUndo = useCallback(() => {
+    if (currentScanStep > 0) {
+      setCurrentScanStep((step) => step - 1);
+      setValidationError(null);
+      setValidationCounts(null);
+    }
+  }, [currentScanStep]);
+
+  // Restart scan sequence from face 1 (Up)
+  const handleResetScan = useCallback(() => {
+    setCurrentScanStep(0);
+    setScannedFaces(Array(6).fill(null));
+    setLastScannedColors(null);
+    setValidationError(null);
+    setValidationCounts(null);
+  }, []);
 
   return (
     <div className="camera-scanner-wrapper">
+      {/* Header */}
       <div className="camera-scanner-header">
         <div className="camera-scanner-title-group">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <h3 className="camera-scanner-title">📷 Face Scanner</h3>
+            <h3 className="camera-scanner-title">📷 6-Face Cube Scanner</h3>
             {isScanning && <span className="scanner-live-badge">● LIVE</span>}
           </div>
           <span className="camera-scanner-subtitle">
-            Align the 3x3 grid over a Rubik&apos;s Cube face
+            Follow the guided sequence to scan all 6 faces of your cube
           </span>
         </div>
         {onClose && (
@@ -230,27 +284,48 @@ export default function CameraScanner({ onClose, onScan, onApplyFace, defaultFac
         )}
       </div>
 
-      {/* Target Face Selector Row */}
-      <div className="target-face-selector-row">
-        <label htmlFor="target-face-select" className="target-face-label">
-          Target Cube Face:
-        </label>
-        <select
-          id="target-face-select"
-          className="target-face-select"
-          value={selectedFace}
-          onChange={(e) => setSelectedFace(e.target.value)}
-        >
-          <option value="F">Front (F - Green)</option>
-          <option value="R">Right (R - Red)</option>
-          <option value="B">Back (B - Blue)</option>
-          <option value="L">Left (L - Orange)</option>
-          <option value="U">Up (U - White)</option>
-          <option value="D">Down (D - Yellow)</option>
-        </select>
+      {/* 2. Wizard Progress Indicator & Scanned Faces Strip */}
+      <div className="wizard-progress-bar">
+        <div className="wizard-step-info">
+          <span className="wizard-step-badge">
+            Face {currentScanStep + 1} of 6: {currentFace.name}
+          </span>
+          <span className="wizard-step-color">
+            Target Center: <strong>{currentFace.colorName}</strong>
+          </span>
+        </div>
+
+        {/* 6 Step Progress Chips */}
+        <div className="scanned-faces-strip" aria-label="Scan Sequence Progress">
+          {SCAN_SEQUENCE.map((seq, idx) => {
+            const isDone = scannedFaces[idx] !== null;
+            const isCurrent = idx === currentScanStep;
+            return (
+              <div
+                key={seq.face}
+                className={`scanned-face-chip ${
+                  isCurrent ? 'chip-active' : isDone ? 'chip-done' : 'chip-pending'
+                }`}
+                title={`Face ${idx + 1}: ${seq.name} (${seq.face})`}
+              >
+                <span className="chip-key">{seq.face}</span>
+                {isDone && <span className="chip-check">✓</span>}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {/* 3. UI & Reticle Overlay Container */}
+      {/* Prominent Orientation Instruction Banner */}
+      <div className="orientation-instruction-banner" role="alert">
+        <span className="instruction-icon" aria-hidden="true">💡</span>
+        <div className="instruction-text-group">
+          <span className="instruction-title">{currentFace.instruction}</span>
+          <span className="instruction-cue">{currentFace.orientationCue}</span>
+        </div>
+      </div>
+
+      {/* 3. Video & Reticle Overlay Container */}
       <div className="camera-scanner-container">
         <video
           ref={videoRef}
@@ -291,60 +366,110 @@ export default function CameraScanner({ onClose, onScan, onApplyFace, defaultFac
       {/* Hidden Canvas used for frame capture and pixel sampling */}
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-      {/* Controls & Capture Button */}
-      <div className="camera-scanner-actions">
+      {/* Controls: Capture Face & Undo Previous Face */}
+      <div className="scanner-wizard-actions">
         <button
           type="button"
           className="capture-face-btn"
-          onClick={captureFace}
+          onClick={captureCurrentFace}
           disabled={hasPermission !== true}
+          title={`Capture current ${currentFace.name} face`}
         >
-          📸 Capture Face
+          📸 Capture {currentFace.name} Face
         </button>
+
+        {currentScanStep > 0 && (
+          <button
+            type="button"
+            className="undo-face-btn"
+            onClick={handleUndo}
+            title="Step backward and re-scan previous face"
+          >
+            ↺ Undo Previous Face
+          </button>
+        )}
       </div>
 
-      {/* Matched Standard Colors 3x3 Grid Swatches Display */}
-      {scanResult.length === 9 && (
-        <div className="scan-result-container">
-          <div className="scan-result-header">
-            <span className="scan-result-heading">
-              Matched Colors for {COLOR_KEY_TO_NAME[selectedFace] || selectedFace} Face:
-            </span>
-            <span className="scan-result-badge">
-              Center: {scanResult[4]?.matchedColor}
+      {/* 4. Strict State Validation Error Display */}
+      {validationError && (
+        <div className="validation-error-card" role="alert">
+          <div className="validation-error-title-row">
+            <span className="validation-error-icon">⚠️</span>
+            <h4 className="validation-error-heading">Validation Error</h4>
+          </div>
+          <p className="validation-error-desc">{validationError}</p>
+
+          {/* Color counts breakdown */}
+          {validationCounts && (
+            <div className="validation-counts-grid">
+              {Object.entries(validationCounts).map(([key, count]) => {
+                const name = COLOR_KEY_TO_NAME[key] || key;
+                const isCorrect = count === 9;
+                return (
+                  <div
+                    key={key}
+                    className={`count-pill ${isCorrect ? 'count-ok' : 'count-skewed'}`}
+                  >
+                    <span>{name} ({key}):</span>
+                    <strong>{count} / 9</strong>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="validation-error-actions">
+            <button
+              type="button"
+              className="rescan-face-btn"
+              onClick={captureCurrentFace}
+            >
+              Rescan Face 6 ({currentFace.name})
+            </button>
+            <button
+              type="button"
+              className="undo-face-btn"
+              onClick={handleUndo}
+            >
+              Undo Face 5
+            </button>
+            <button
+              type="button"
+              className="reset-scan-btn"
+              onClick={handleResetScan}
+            >
+              Start Over
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Last Scanned Face Swatch Preview (Optional Visual Confirmation) */}
+      {lastScannedColors && !validationError && (
+        <div className="last-scan-preview">
+          <div className="last-scan-header">
+            <span className="last-scan-title">
+              Last Scanned Face ({SCAN_SEQUENCE[Math.max(0, currentScanStep - 1)]?.name || 'Face'}):
             </span>
           </div>
-
-          <div className="scan-result-grid" aria-label="3x3 Matched Standard Colors">
-            {scanResult.map((item, idx) => {
-              const isCenter = idx === 4;
-              const isLightColor = item.matchedColor === 'White' || item.matchedColor === 'Yellow';
+          <div className="last-scan-grid">
+            {lastScannedColors.map((color, idx) => {
+              const isLight = color.matchedColor === 'White' || color.matchedColor === 'Yellow';
               return (
                 <div
                   key={idx}
-                  className={`matched-swatch-box ${isCenter ? 'center-swatch' : ''}`}
+                  className="last-scan-swatch"
                   style={{
-                    backgroundColor: item.hex,
-                    color: isLightColor ? '#0f172a' : '#ffffff',
+                    backgroundColor: color.hex,
+                    color: isLight ? '#0f172a' : '#ffffff',
                   }}
-                  title={`Position ${idx + 1}: ${item.matchedColor} (${item.matchedKey}) [rgb: ${item.r}, ${item.g}, ${item.b}]`}
+                  title={`Position ${idx + 1}: ${color.matchedColor}`}
                 >
-                  <span className="matched-swatch-name">{item.matchedColor}</span>
-                  <span className="matched-swatch-key">({item.matchedKey})</span>
-                  {isCenter && <span className="center-indicator-tag">Center</span>}
+                  <span>{color.matchedKey}</span>
                 </div>
               );
             })}
           </div>
-
-          <button
-            type="button"
-            className="apply-to-cube-btn"
-            onClick={handleApplyFace}
-            title={`Apply these 9 colors to the ${selectedFace} face of the 3D cube`}
-          >
-            🧩 Apply to {COLOR_KEY_TO_NAME[selectedFace] || selectedFace} Face
-          </button>
         </div>
       )}
     </div>
