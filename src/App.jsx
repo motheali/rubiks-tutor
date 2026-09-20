@@ -4,78 +4,10 @@ import { Canvas } from '@react-three/fiber';
 import { Cube as CubeEngine, SOLVED_STATE } from './CubeEngine';
 import { validateCubeState } from './CubeValidator';
 import Cube3D from './components/Cube3D';
+import { getInverseMove, applyMove, toSolverFormat } from './tutorUtils';
 import './App.css';
 
 const solveCube = solverModule.default || solverModule;
-const RubiksCube = solveCube.RubiksCube || solverModule.RubiksCube;
-
-/**
- * Converts our URFDLB uppercase cube state into rubiks-cube-solver FRUDLB lowercase format.
- * rubiks-cube-solver expects: Front, Right, Up, Down, Left, Back
- * @param {string} state
- * @returns {string}
- */
-function toSolverFormat(state) {
-  if (!state || state.length !== 54) return state;
-  const U = state.substring(0, 9);
-  const R = state.substring(9, 18);
-  const F = state.substring(18, 27);
-  const D = state.substring(27, 36);
-  const L = state.substring(36, 45);
-  const B = state.substring(45, 54);
-  return `${F}${R}${U}${D}${L}${B}`.toLowerCase();
-}
-
-/**
- * Converts rubiks-cube-solver FRUDLB lowercase format back to our URFDLB uppercase state.
- * @param {string} solverState
- * @returns {string}
- */
-function fromSolverFormat(solverState) {
-  const f = solverState.slice(0, 9);
-  const r = solverState.slice(9, 18);
-  const u = solverState.slice(18, 27);
-  const d = solverState.slice(27, 36);
-  const l = solverState.slice(36, 45);
-  const b = solverState.slice(45, 54);
-  return (u + r + f + d + l + b).toUpperCase();
-}
-
-/**
- * Maps a standard move notation (e.g. "U", "R'", "Rprime", "F2") to the corresponding CubeEngine methods.
- * For wide moves (e.g. "r", "d", "b") or slice moves, uses RubiksCube to accurately update state.
- * @param {CubeEngine} cubeInstance
- * @param {string} move
- */
-function executeMove(cubeInstance, move) {
-  if (!move) return;
-  const isPrime = move.includes("'") || move.toLowerCase().includes('prime');
-  const isDouble = move.includes('2');
-  const baseLetter = move[0];
-  const isStandardFace = ['U', 'R', 'F', 'D', 'L', 'B'].includes(baseLetter);
-
-  if (isStandardFace) {
-    const methodName = isPrime ? `turn${baseLetter}Prime` : `turn${baseLetter}`;
-    if (isDouble) {
-      const r1 = cubeInstance[methodName]?.();
-      const s1 = r1 instanceof CubeEngine ? r1.state : r1;
-      const r2 = r1?.[methodName]?.() || new CubeEngine(s1)[methodName]?.();
-      cubeInstance.state = r2 instanceof CubeEngine ? r2.state : r2;
-    } else {
-      const res = cubeInstance[methodName]?.();
-      cubeInstance.state = res instanceof CubeEngine ? res.state : res;
-    }
-  } else {
-    try {
-      const solverStr = toSolverFormat(cubeInstance.state);
-      const rc = new RubiksCube(solverStr);
-      rc.move(move);
-      cubeInstance.state = fromSolverFormat(rc.toString());
-    } catch {
-      // Fallback
-    }
-  }
-}
 
 /**
  * Curated Aesthetic Palette for Rubik's Cube Tiles:
@@ -100,12 +32,12 @@ const TILE_COLORS = {
  * Interactive Paint Brush Color Palette Definition
  */
 const PALETTE_SWATCHES = [
-  { key: 'U', name: 'White', color: TILE_COLORS.U },
-  { key: 'R', name: 'Red', color: TILE_COLORS.R },
-  { key: 'F', name: 'Green', color: TILE_COLORS.F },
-  { key: 'D', name: 'Yellow', color: TILE_COLORS.D },
-  { key: 'L', name: 'Orange', color: TILE_COLORS.L },
-  { key: 'B', name: 'Blue', color: TILE_COLORS.B },
+  { key: 'U', name: 'White', color: TILE_COLORS.U, shortcut: '1' },
+  { key: 'R', name: 'Red', color: TILE_COLORS.R, shortcut: '2' },
+  { key: 'F', name: 'Green', color: TILE_COLORS.F, shortcut: '3' },
+  { key: 'D', name: 'Yellow', color: TILE_COLORS.D, shortcut: '4' },
+  { key: 'L', name: 'Orange', color: TILE_COLORS.L, shortcut: '5' },
+  { key: 'B', name: 'Blue', color: TILE_COLORS.B, shortcut: '6' },
 ];
 
 /**
@@ -161,21 +93,27 @@ export default function App() {
   const [activeBrush, setActiveBrush] = useState('U'); // Default 'U' (White)
   const [isEditMode, setIsEditMode] = useState(false);
 
-  // Auto-playback solver states
-  const [solutionMoves, setSolutionMoves] = useState([]);
-  const [currentMoveIndex, setCurrentMoveIndex] = useState(-1);
+  // Speed slider state (Animation Speed in ms)
+  const [animationSpeed, setAnimationSpeed] = useState(400);
+
+  // Tutor mode & auto-playback solver states
+  const [solveSequence, setSolveSequence] = useState([]);
+  const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isSolving, setIsSolving] = useState(false);
   const [solverStatus, setSolverStatus] = useState('');
   const [solverError, setSolverError] = useState('');
   const setUIError = setSolverError;
   const isCancelledRef = useRef(false);
 
-  // Ref-based locks to synchronously block rapid speed-cubing inputs and prevent race conditions
+  // Ref-based locks and values to synchronously prevent stale closures and race conditions
   const isAnimatingRef = useRef(false);
   const isSolvingRef = useRef(false);
   const isEditModeRef = useRef(false);
+  const animationSpeedRef = useRef(400);
+  const solveSequenceRef = useRef([]);
+  const currentStepIndexRef = useRef(0);
 
-  // Keep solver and edit mode refs synchronized with React state
+  // Keep refs synchronized with React state
   useEffect(() => {
     isSolvingRef.current = isSolving;
   }, [isSolving]);
@@ -183,6 +121,18 @@ export default function App() {
   useEffect(() => {
     isEditModeRef.current = isEditMode;
   }, [isEditMode]);
+
+  useEffect(() => {
+    animationSpeedRef.current = animationSpeed;
+  }, [animationSpeed]);
+
+  useEffect(() => {
+    solveSequenceRef.current = solveSequence;
+  }, [solveSequence]);
+
+  useEffect(() => {
+    currentStepIndexRef.current = currentStepIndex;
+  }, [currentStepIndex]);
 
   const stateString = cube.state;
 
@@ -214,7 +164,70 @@ export default function App() {
     setMoveCount((count) => count + 1);
   }, []);
 
-  // Bulletproof Speed-Cubing Keyboard Controls
+  // Halt auto-solver playback immediately (synchronous ref updates + state update)
+  const haltAutoSolver = useCallback(() => {
+    if (isSolvingRef.current) {
+      isCancelledRef.current = true;
+      isSolvingRef.current = false;
+      setIsSolving(false);
+      setSolverStatus('Auto-solve paused. Tutor mode active.');
+    }
+  }, []);
+
+  // Tutor Mode: Execute the next move in solveSequence and increment currentStepIndex
+  const handleNextStep = useCallback(() => {
+    if (isSolvingRef.current) {
+      haltAutoSolver();
+    }
+    if (isEditModeRef.current || isAnimatingRef.current) return;
+
+    const seq = solveSequenceRef.current;
+    const idx = currentStepIndexRef.current;
+    if (!seq || idx >= seq.length) return;
+
+    const move = seq[idx];
+    setCube((prev) => applyMove(prev, move));
+    setMoveCount((count) => count + (move.includes('2') ? 2 : 1));
+    const nextIdx = idx + 1;
+    currentStepIndexRef.current = nextIdx;
+    setCurrentStepIndex(nextIdx);
+    if (nextIdx === seq.length) {
+      setSolverStatus(`Solved in ${seq.length} moves! 🎉`);
+    } else {
+      setSolverStatus(`Tutor Mode: Step ${nextIdx} of ${seq.length}`);
+    }
+  }, [haltAutoSolver]);
+
+  // Tutor Mode: Execute the inverse (Prime) of previous move and decrement currentStepIndex
+  const handlePrevStep = useCallback(() => {
+    if (isSolvingRef.current) {
+      haltAutoSolver();
+    }
+    if (isEditModeRef.current || isAnimatingRef.current) return;
+
+    const seq = solveSequenceRef.current;
+    const idx = currentStepIndexRef.current;
+    if (!seq || idx <= 0) return;
+
+    const prevMove = seq[idx - 1];
+    const inverseMove = getInverseMove(prevMove);
+    setCube((prev) => applyMove(prev, inverseMove));
+    setMoveCount((count) => Math.max(0, count - (prevMove.includes('2') ? 2 : 1)));
+    const nextIdx = idx - 1;
+    currentStepIndexRef.current = nextIdx;
+    setCurrentStepIndex(nextIdx);
+    setSolverStatus(`Tutor Mode: Step ${nextIdx} of ${seq.length}`);
+  }, [haltAutoSolver]);
+
+  const handleNextStepRef = useRef(handleNextStep);
+  const handlePrevStepRef = useRef(handlePrevStep);
+
+  useEffect(() => {
+    handleNextStepRef.current = handleNextStep;
+    handlePrevStepRef.current = handlePrevStep;
+  });
+
+  // Bulletproof Speed-Cubing, Tutor Mode, and Palette Keyboard Controls
   // Functional updates, ref-based locks, empty dependency array [], strict cleanup
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -223,28 +236,56 @@ export default function App() {
         return;
       }
 
-      // 2. Input Focus Trap: do not execute moves if user is focused inside an input or textarea
+      // 2. Input Focus Trap: do not execute moves or hotkeys if user is focused inside an input or textarea
       const activeTag = document.activeElement?.tagName;
       if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') {
         return;
       }
 
-      // 3. Edit Mode Guardrail: do not execute moves while in 2D painting/editing mode (ref-based lock)
+      // 3. Color Palette Keyboard Shortcuts (1-6) - active only in Edit Mode
       if (isEditModeRef.current) {
+        const NUM_TO_KEY = {
+          '1': 'U',
+          '2': 'R',
+          '3': 'F',
+          '4': 'D',
+          '5': 'L',
+          '6': 'B',
+        };
+        const colorKey = NUM_TO_KEY[event.key];
+        if (colorKey) {
+          event.preventDefault();
+          setActiveBrush(colorKey);
+          return;
+        }
+        // In Edit Mode, do not execute cube rotation moves
         return;
       }
 
-      // 4. Solver Lock Guardrail: do not execute moves while auto-solver playback animation is running (ref-based lock)
+      // 4. Tutor Mode Keyboard Controls: ArrowRight -> Next Move, ArrowLeft -> Prev Move
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        handleNextStepRef.current?.();
+        return;
+      }
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        handlePrevStepRef.current?.();
+        return;
+      }
+
+      // 5. Solver Lock Guardrail: do not execute moves while auto-solver playback animation is running (ref-based lock)
       if (isSolvingRef.current) {
         return;
       }
 
-      // 5. Animation Lock Guardrail: do not execute moves while 3D rotation animation is in progress (ref-based lock)
+      // 6. Animation Lock Guardrail: do not execute moves while 3D rotation animation is in progress (ref-based lock)
       if (isAnimatingRef.current) {
         return;
       }
 
-      // 6. Mapping: r, l, u, d, f, b (case-insensitive) to respective face rotation functions
+      // 7. Mapping: r, l, u, d, f, b (case-insensitive) to respective face rotation functions
       const key = event.key.toLowerCase();
       const KEY_TO_FACE = {
         r: 'R',
@@ -289,8 +330,10 @@ export default function App() {
     isSolvingRef.current = false;
     isAnimatingRef.current = false;
     setIsSolving(false);
-    setSolutionMoves([]);
-    setCurrentMoveIndex(-1);
+    setSolveSequence([]);
+    solveSequenceRef.current = [];
+    setCurrentStepIndex(0);
+    currentStepIndexRef.current = 0;
     setSolverStatus('');
     setSolverError('');
     cube.reset();
@@ -304,8 +347,10 @@ export default function App() {
     isSolvingRef.current = false;
     isAnimatingRef.current = false;
     setIsSolving(false);
-    setSolutionMoves([]);
-    setCurrentMoveIndex(-1);
+    setSolveSequence([]);
+    solveSequenceRef.current = [];
+    setCurrentStepIndex(0);
+    currentStepIndexRef.current = 0;
     setSolverStatus('');
     setSolverError('');
     const blankArr = Array(54).fill('X');
@@ -333,8 +378,10 @@ export default function App() {
   // Random 20-move scramble including clockwise and prime turns
   const handleScramble = () => {
     if (isSolvingRef.current || isAnimatingRef.current || isEditModeRef.current) return;
-    setSolutionMoves([]);
-    setCurrentMoveIndex(-1);
+    setSolveSequence([]);
+    solveSequenceRef.current = [];
+    setCurrentStepIndex(0);
+    currentStepIndexRef.current = 0;
     setSolverStatus('');
     setSolverError('');
     const turns = [
@@ -351,7 +398,7 @@ export default function App() {
     setMoveCount((count) => count + 20);
   };
 
-  // Verify physical state, solve with rubiks-cube-solver, and auto-playback solution sequence (400ms per move)
+  // Verify physical state, solve with rubiks-cube-solver, and auto-playback solution sequence using dynamic animationSpeed
   const handleVerifyAndSolve = async () => {
     if (isSolvingRef.current) return;
 
@@ -381,16 +428,8 @@ export default function App() {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     try {
-      // Extract faces from our URFDLB format
-      const U = cube.state.substring(0, 9);
-      const R = cube.state.substring(9, 18);
-      const F = cube.state.substring(18, 27);
-      const D = cube.state.substring(27, 36);
-      const L = cube.state.substring(36, 45);
-      const B = cube.state.substring(45, 54);
-
-      // Reorder to library's FRUDLB format and make lowercase
-      const solverFormat = `${F}${R}${U}${D}${L}${B}`.toLowerCase();
+      // Translate our URFDLB format to rubiks-cube-solver FRUDLB lowercase format
+      const solverFormat = toSolverFormat(cube.state);
 
       // Pass adapter string to solver
       const solution = solveCube(solverFormat);
@@ -406,25 +445,28 @@ export default function App() {
         return;
       }
 
-      setSolutionMoves(moves);
+      setSolveSequence(moves);
+      solveSequenceRef.current = moves;
+      setCurrentStepIndex(0);
+      currentStepIndexRef.current = 0;
       setSolverStatus(`Solving (${moves.length} moves)...`);
 
-      // 3. Auto-Playback Animation (400ms per move)
+      // 3. Auto-Playback Animation (using dynamic animationSpeedRef.current per move)
       for (let i = 0; i < moves.length; i++) {
         if (isCancelledRef.current) break;
 
-        setCurrentMoveIndex(i);
         const move = moves[i];
 
-        executeMove(cube, move);
-        setCube(new CubeEngine(cube.state));
+        setCube((prev) => applyMove(prev, move));
         setMoveCount((count) => count + (move.includes('2') ? 2 : 1));
 
-        await new Promise((resolve) => setTimeout(resolve, 400));
+        currentStepIndexRef.current = i + 1;
+        setCurrentStepIndex(i + 1);
+
+        await new Promise((resolve) => setTimeout(resolve, animationSpeedRef.current));
       }
 
       if (!isCancelledRef.current) {
-        setCurrentMoveIndex(-1);
         setSolverStatus(`Solved in ${moves.length} moves! 🎉`);
       }
     } catch (error) {
@@ -456,12 +498,12 @@ export default function App() {
       </section>
 
       {/* Solution Sequence & Playback Display */}
-      {(solutionMoves.length > 0 || solverStatus || solverError) && (
+      {(solveSequence.length > 0 || solverStatus || solverError) && (
         <section className="solution-container" aria-label="Solution Playback">
           <div className="solution-header">
             <span>
-              {solutionMoves.length > 0
-                ? `Solution Sequence (${solutionMoves.length} moves)`
+              {solveSequence.length > 0
+                ? `Solution Sequence (${solveSequence.length} moves)`
                 : 'Solver Status'}
             </span>
             {solverStatus && <span className="solution-status">{solverStatus}</span>}
@@ -471,24 +513,53 @@ export default function App() {
               </span>
             )}
           </div>
-          {solutionMoves.length > 0 && (
-            <div className="solution-sequence">
-              {solutionMoves.map((move, idx) => {
-                const isCurrent = idx === currentMoveIndex;
-                const isDone = currentMoveIndex !== -1 && idx < currentMoveIndex;
-                return (
-                  <span
-                    key={idx}
-                    className={`solution-move ${isCurrent ? 'active-move' : ''} ${
-                      isDone ? 'completed-move' : ''
-                    }`}
-                    title={`Step ${idx + 1}: ${move}`}
-                  >
-                    {move}
-                  </span>
-                );
-              })}
-            </div>
+          {solveSequence.length > 0 && (
+            <>
+              <div className="solution-sequence">
+                {solveSequence.map((move, idx) => {
+                  const isCurrent = idx === currentStepIndex && currentStepIndex < solveSequence.length;
+                  const isDone = idx < currentStepIndex;
+                  return (
+                    <span
+                      key={idx}
+                      className={`solution-move ${isCurrent ? 'active-move' : ''} ${
+                        isDone ? 'completed-move' : ''
+                      }`}
+                      title={`Step ${idx + 1}: ${move}`}
+                    >
+                      {move}
+                    </span>
+                  );
+                })}
+              </div>
+
+              {/* Tutor Mode Step-by-Step Navigation Bar */}
+              <div className="tutor-controls-bar">
+                <button
+                  type="button"
+                  className="tutor-btn"
+                  onClick={handlePrevStep}
+                  disabled={currentStepIndex <= 0}
+                  title="Execute reverse of previous move (Key: ArrowLeft ←)"
+                >
+                  <span>◀ Prev Move</span>
+                  <kbd className="key-hint">←</kbd>
+                </button>
+                <span className="tutor-step-info">
+                  Step {currentStepIndex} of {solveSequence.length}
+                </span>
+                <button
+                  type="button"
+                  className="tutor-btn"
+                  onClick={handleNextStep}
+                  disabled={currentStepIndex >= solveSequence.length}
+                  title="Execute next move (Key: ArrowRight →)"
+                >
+                  <span>Next Move ▶</span>
+                  <kbd className="key-hint">→</kbd>
+                </button>
+              </div>
+            </>
           )}
         </section>
       )}
@@ -524,13 +595,14 @@ export default function App() {
                 className={`palette-swatch ${isActive ? 'active-brush' : ''}`}
                 style={{ '--swatch-color': swatch.color }}
                 onClick={() => setActiveBrush(swatch.key)}
-                title={`Select ${swatch.name} (${swatch.key}) Brush`}
+                title={`Select ${swatch.name} (${swatch.key}) Brush [Key: ${swatch.shortcut}]`}
               >
                 <span
                   className="swatch-indicator"
                   style={{ backgroundColor: swatch.color, color: swatch.color }}
                 />
                 <span>{swatch.name} ({swatch.key})</span>
+                {isEditMode && <kbd className="palette-key-hint">{swatch.shortcut}</kbd>}
                 <span
                   className={`swatch-counter ${
                     currentCount === 9
@@ -549,7 +621,7 @@ export default function App() {
         </div>
         <p className="edit-instructions">
           {isEditMode
-            ? 'Select a color swatch above, then click any tile on the 2D Net below to paint it.'
+            ? 'Select a color swatch above (Keys: 1-6), then click any tile on the 2D Net below to paint it.'
             : 'Toggle "Enter Edit Mode" to paint custom colors onto the 2D Net.'}
         </p>
       </section>
@@ -680,6 +752,28 @@ export default function App() {
               <kbd className="key-hint">{btn.shortcut}</kbd>
             </button>
           ))}
+        </div>
+
+        {/* Speed Slider for Animation Playback */}
+        <div className="speed-slider-group">
+          <label htmlFor="speed-slider" className="speed-label">
+            Animation Speed: <span className="speed-value">{animationSpeed}ms</span>
+          </label>
+          <input
+            id="speed-slider"
+            type="range"
+            min="100"
+            max="1000"
+            step="50"
+            value={animationSpeed}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              setAnimationSpeed(val);
+              animationSpeedRef.current = val;
+            }}
+            className="speed-slider"
+            aria-label="Animation playback speed"
+          />
         </div>
 
         {/* Secondary Utility Controls */}
